@@ -74,7 +74,7 @@ fi
 pip install git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
 
 # Force CUDA arch flags for builds without GPU access
-export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:8.9;9.0,12.0}"
+export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.9;9.0;12.0}"
 export FORCE_CUDA=1
 
 TEMP_DIR="/tmp/extensions"
