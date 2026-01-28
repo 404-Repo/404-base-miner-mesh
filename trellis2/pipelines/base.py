@@ -19,31 +19,72 @@ class Pipeline:
             model.eval()
 
     @classmethod
-    def from_pretrained(cls, path: str, config_file: str = "pipeline.json") -> "Pipeline":
+    def from_pretrained(
+        cls,
+        path: str,
+        config_file: str = "pipeline.json",
+        revision: str = None,
+        model_revisions: dict[str, str] = None,
+    ) -> "Pipeline":
         """
         Load a pretrained model.
+
+        Args:
+            path: The path to the model. Can be either local path or a Hugging Face repository.
+            config_file: The name of the config file.
+            revision: Specific HuggingFace commit hash for the main model repo.
+            model_revisions: Dict mapping external repo IDs to their revisions.
+                             E.g. {"microsoft/TRELLIS-image-large": "abc123..."}
         """
         import os
         import json
+        from loguru import logger
+        
+        if model_revisions is None:
+            model_revisions = {}
+        
         is_local = os.path.exists(f"{path}/{config_file}")
 
         if is_local:
             config_file = f"{path}/{config_file}"
         else:
             from huggingface_hub import hf_hub_download
-            config_file = hf_hub_download(path, config_file)
+            config_file = hf_hub_download(path, config_file, revision=revision)
 
         with open(config_file, 'r') as f:
             args = json.load(f)['args']
+
+        # Parse the main repo ID (e.g. "microsoft/TRELLIS.2-4B")
+        main_repo_parts = path.split('/')
+        main_repo_id = '/'.join(main_repo_parts[:2]) if len(main_repo_parts) >= 2 else path
 
         _models = {}
         for k, v in args['models'].items():
             if hasattr(cls, 'model_names_to_load') and k not in cls.model_names_to_load:
                 continue
+            
+            # Try loading as a local/relative path first
             try:
-                _models[k] = models.from_pretrained(f"{path}/{v}")
+                _models[k] = models.from_pretrained(f"{path}/{v}", revision=revision)
             except Exception as e:
-                _models[k] = models.from_pretrained(v)
+                # External model path - check if it's a different repo
+                v_parts = v.split('/')
+                if len(v_parts) >= 2:
+                    external_repo_id = '/'.join(v_parts[:2])
+                else:
+                    external_repo_id = v
+                
+                # Only use revision if it's the same repo, otherwise look up in model_revisions
+                if external_repo_id == main_repo_id:
+                    model_revision = revision
+                else:
+                    model_revision = model_revisions.get(external_repo_id)
+                    if model_revision:
+                        logger.info(f"Using pinned revision for external model {external_repo_id}: {model_revision}")
+                    else:
+                        logger.debug(f"No pinned revision for external model {external_repo_id}, using latest")
+                
+                _models[k] = models.from_pretrained(v, revision=model_revision)
 
         new_pipeline = cls(_models)
         new_pipeline._pretrained_args = args

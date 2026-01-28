@@ -65,14 +65,27 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         self._device = 'cuda'
 
     @classmethod
-    def from_pretrained(cls, path: str, config_file: str = "pipeline.json") -> "Trellis2ImageTo3DPipeline":
+    def from_pretrained(
+        cls,
+        path: str,
+        config_file: str = "pipeline.json",
+        revision: str = None,
+        birefnet_revision: str = None,
+        dinov3_revision: str = None,
+        model_revisions: dict[str, str] = None,
+    ) -> "Trellis2ImageTo3DPipeline":
         """
         Load a pretrained model.
 
         Args:
             path (str): The path to the model. Can be either local path or a Hugging Face repository.
+            revision: Specific HuggingFace commit hash for the Trellis model.
+            birefnet_revision: Specific HuggingFace commit hash for BiRefNet model.
+            dinov3_revision: Specific HuggingFace commit hash for DINOv3 model.
+            model_revisions: Dict mapping external repo IDs to their revisions.
+                             E.g. {"microsoft/TRELLIS-image-large": "abc123..."}
         """
-        pipeline = super().from_pretrained(path, config_file)
+        pipeline = super().from_pretrained(path, config_file, revision=revision, model_revisions=model_revisions)
         args = pipeline._pretrained_args
 
         pipeline.sparse_structure_sampler = getattr(samplers, args['sparse_structure_sampler']['name'])(
@@ -90,9 +103,16 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         pipeline.shape_slat_normalization = args['shape_slat_normalization']
         pipeline.tex_slat_normalization = args['tex_slat_normalization']
 
-        pipeline.image_cond_model = getattr(image_feature_extractor, args['image_cond_model']['name'])(**args['image_cond_model']['args'])
-        # pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])
-        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])("ZhengPeng7/BiRefNet")
+        # Pass dinov3_revision to the image conditioning model
+        image_cond_args = {**args['image_cond_model']['args']}
+        if dinov3_revision is not None:
+            image_cond_args['revision'] = dinov3_revision
+        pipeline.image_cond_model = getattr(image_feature_extractor, args['image_cond_model']['name'])(**image_cond_args)
+        
+        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(
+            "ZhengPeng7/BiRefNet",
+            revision=birefnet_revision,
+        )
 
         pipeline.default_pipeline_type = args.get('default_pipeline_type', '1024_cascade')
         pipeline.pbr_attr_layout = {
