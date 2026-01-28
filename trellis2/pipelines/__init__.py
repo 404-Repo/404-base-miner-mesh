@@ -23,12 +23,13 @@ def __getattr__(name):
     return globals()[name]
 
 
-def from_pretrained(path: str):
+def from_pretrained(path: str, revision: str = None):
     """
     Load a pipeline from a model folder or a Hugging Face model hub.
 
     Args:
         path: The path to the model. Can be either local path or a Hugging Face model name.
+        revision: Specific HuggingFace commit hash for reproducibility (recommended for production).
     """
     import os
     import json
@@ -38,11 +39,11 @@ def from_pretrained(path: str):
         config_file = f"{path}/pipeline.json"
     else:
         from huggingface_hub import hf_hub_download
-        config_file = hf_hub_download(path, "pipeline.json")
+        config_file = hf_hub_download(path, "pipeline.json", revision=revision)
 
     with open(config_file, 'r') as f:
         config = json.load(f)
-    return globals()[config['name']].from_pretrained(path)
+    return globals()[config['name']].from_pretrained(path, revision=revision)
 
 
 # For PyLance

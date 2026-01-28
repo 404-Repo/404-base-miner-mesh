@@ -60,9 +60,17 @@ class DinoV3FeatureExtractor:
     """
     Feature extractor for DINOv3 models.
     """
-    def __init__(self, model_name: str, image_size=512):
+    def __init__(self, model_name: str, image_size=512, revision: str = None):
+        """
+        Initialize DINOv3 feature extractor.
+
+        Args:
+            model_name: HuggingFace model name (e.g. facebook/dinov3-vitl16-pretrain-lvd1689m).
+            image_size: Input image size.
+            revision: Specific HuggingFace commit hash for reproducibility.
+        """
         self.model_name = model_name
-        self.model = DINOv3ViTModel.from_pretrained(model_name)
+        self.model = DINOv3ViTModel.from_pretrained(model_name, revision=revision)
         self.model.eval()
         self.image_size = image_size
         self.transform = transforms.Compose([

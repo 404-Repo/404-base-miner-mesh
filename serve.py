@@ -3,14 +3,17 @@ import argparse
 import asyncio
 import os
 from io import BytesIO
+from pathlib import Path
 from time import time
+from typing import Optional
+
+import yaml
+import torch
+import uvicorn
 from PIL import Image
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-
-import torch
-import uvicorn
 from loguru import logger
 from fastapi import FastAPI,  UploadFile, File, APIRouter, Form
 from fastapi.responses import Response, StreamingResponse
@@ -18,6 +21,29 @@ from starlette.datastructures import State
 
 import o_voxel
 from trellis2.pipelines import Trellis2ImageTo3DPipeline
+
+
+def load_model_versions() -> dict:
+    """Load pinned model versions from model_versions.yml."""
+    versions_file = Path(__file__).parent / "model_versions.yml"
+    if versions_file.exists():
+        with open(versions_file) as f:
+            return yaml.safe_load(f) or {}
+    logger.warning("model_versions.yml not found, using unpinned versions")
+    return {}
+
+
+def get_hf_revision(model_id: str) -> Optional[str]:
+    """Get the pinned HuggingFace revision for a model, or None if not pinned."""
+    versions = load_model_versions()
+    hf_models = versions.get("huggingface", {})
+    model_config = hf_models.get(model_id, {})
+    revision = model_config.get("revision") if isinstance(model_config, dict) else None
+    if revision:
+        logger.info(f"Using pinned revision for {model_id}: {revision}")
+    else:
+        logger.warning(f"No pinned revision for {model_id}, using latest")
+    return revision
 
 
 def get_args() -> argparse.Namespace:
@@ -46,7 +72,24 @@ class MyFastAPI(FastAPI):
 async def lifespan(app: MyFastAPI) -> AsyncIterator[None]:
     logger.info("Loading Trellis 2 generator models ...")
     try:
-        app.state.trellis_generator = Trellis2ImageTo3DPipeline.from_pretrained("microsoft/TRELLIS.2-4B")
+        # Get pinned revisions from model_versions.yml
+        trellis_revision = get_hf_revision("microsoft/TRELLIS.2-4B")
+        birefnet_revision = get_hf_revision("ZhengPeng7/BiRefNet")
+        dinov3_revision = get_hf_revision("facebook/dinov3-vitl16-pretrain-lvd1689m")
+        
+        # Build model_revisions dict for external models referenced in pipeline.json
+        model_revisions = {}
+        trellis_image_large_revision = get_hf_revision("microsoft/TRELLIS-image-large")
+        if trellis_image_large_revision:
+            model_revisions["microsoft/TRELLIS-image-large"] = trellis_image_large_revision
+        
+        app.state.trellis_generator = Trellis2ImageTo3DPipeline.from_pretrained(
+            "microsoft/TRELLIS.2-4B",
+            revision=trellis_revision,
+            birefnet_revision=birefnet_revision,
+            dinov3_revision=dinov3_revision,
+            model_revisions=model_revisions,
+        )
         app.state.trellis_generator.to("cuda")
 
     except Exception as e:

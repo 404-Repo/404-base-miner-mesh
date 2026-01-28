@@ -6,9 +6,16 @@ from PIL import Image
 
 
 class BiRefNet:
-    def __init__(self, model_name: str = "ZhengPeng7/BiRefNet"):
+    def __init__(self, model_name: str = "ZhengPeng7/BiRefNet", revision: str = None):
+        """
+        Initialize BiRefNet background removal model.
+
+        Args:
+            model_name: HuggingFace model name.
+            revision: Specific HuggingFace commit hash for reproducibility.
+        """
         self.model = AutoModelForImageSegmentation.from_pretrained(
-            model_name, trust_remote_code=True
+            model_name, trust_remote_code=True, revision=revision
         )
         self.model.eval()
         self.transform_image = transforms.Compose(
