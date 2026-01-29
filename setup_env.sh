@@ -94,13 +94,13 @@ pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/t
 # Install cumesh
 echo "Installing cumesh..."
 git clone https://github.com/JeffreyXiang/CuMesh.git $TEMP_DIR/CuMesh --recursive
-cd $TEMP_DIR/CuMesh && git checkout 6f403664cc79e5a0f0c993d2d03976ace0e7f829
+(cd $TEMP_DIR/CuMesh && git checkout 6f403664cc79e5a0f0c993d2d03976ace0e7f829)
 pip install $TEMP_DIR/CuMesh --no-build-isolation
 
 # Install flexgemm
 echo "Installing flexgemm..."
 git clone https://github.com/JeffreyXiang/FlexGEMM.git $TEMP_DIR/FlexGEMM --recursive
-cd $TEMP_DIR/FlexGEMM && git checkout de6411284d20a6d41362db27a59a6923aeceebfe
+(cd $TEMP_DIR/FlexGEMM && git checkout de6411284d20a6d41362db27a59a6923aeceebfe)
 pip install $TEMP_DIR/FlexGEMM --no-build-isolation
 
 # Install o-voxel
