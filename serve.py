@@ -1,11 +1,9 @@
 import gc
 import argparse
 import asyncio
-import os
 from io import BytesIO
 from pathlib import Path
 from time import time
-from typing import Optional
 
 import yaml
 import torch
@@ -23,27 +21,27 @@ import o_voxel
 from trellis2.pipelines import Trellis2ImageTo3DPipeline
 
 
-def load_model_versions() -> dict:
+REQUIRED_MODELS = {
+    "microsoft/TRELLIS.2-4B",
+    "microsoft/TRELLIS-image-large",
+    "ZhengPeng7/BiRefNet",
+    "facebook/dinov3-vitl16-pretrain-lvd1689m",
+}
+
+
+def load_model_versions() -> dict[str, str]:
     """Load pinned model versions from model_versions.yml."""
     versions_file = Path(__file__).parent / "model_versions.yml"
-    if versions_file.exists():
-        with open(versions_file) as f:
-            return yaml.safe_load(f) or {}
-    logger.warning("model_versions.yml not found, using unpinned versions")
-    return {}
-
-
-def get_hf_revision(model_id: str) -> Optional[str]:
-    """Get the pinned HuggingFace revision for a model, or None if not pinned."""
-    versions = load_model_versions()
-    hf_models = versions.get("huggingface", {})
-    model_config = hf_models.get(model_id, {})
-    revision = model_config.get("revision") if isinstance(model_config, dict) else None
-    if revision:
-        logger.info(f"Using pinned revision for {model_id}: {revision}")
-    else:
-        logger.warning(f"No pinned revision for {model_id}, using latest")
-    return revision
+    with open(versions_file) as f:
+        data = yaml.safe_load(f)["huggingface"]
+    
+    # Extract revisions and validate
+    versions = {k: v["revision"] for k, v in data.items()}
+    
+    if missing := REQUIRED_MODELS - versions.keys():
+        raise ValueError(f"Missing required models in model_versions.yml: {missing}")
+    
+    return versions
 
 
 def get_args() -> argparse.Namespace:
@@ -72,23 +70,12 @@ class MyFastAPI(FastAPI):
 async def lifespan(app: MyFastAPI) -> AsyncIterator[None]:
     logger.info("Loading Trellis 2 generator models ...")
     try:
-        # Get pinned revisions from model_versions.yml
-        trellis_revision = get_hf_revision("microsoft/TRELLIS.2-4B")
-        birefnet_revision = get_hf_revision("ZhengPeng7/BiRefNet")
-        dinov3_revision = get_hf_revision("facebook/dinov3-vitl16-pretrain-lvd1689m")
-        
-        # Build model_revisions dict for external models referenced in pipeline.json
-        model_revisions = {}
-        trellis_image_large_revision = get_hf_revision("microsoft/TRELLIS-image-large")
-        if trellis_image_large_revision:
-            model_revisions["microsoft/TRELLIS-image-large"] = trellis_image_large_revision
+        versions = load_model_versions()
+        logger.info(f"Loaded pinned revisions for {len(versions)} models")
         
         app.state.trellis_generator = Trellis2ImageTo3DPipeline.from_pretrained(
             "microsoft/TRELLIS.2-4B",
-            revision=trellis_revision,
-            birefnet_revision=birefnet_revision,
-            dinov3_revision=dinov3_revision,
-            model_revisions=model_revisions,
+            versions,
         )
         app.state.trellis_generator.to("cuda")
 

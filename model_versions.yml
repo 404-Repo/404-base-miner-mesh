@@ -17,7 +17,7 @@ huggingface:
 
   # Background removal model (BiRefNet)
   ZhengPeng7/BiRefNet:
-    revision: "26e7919b869d089e5096e898c0492898f935604c"  # TODO: Pin after identifying stable commit
+    revision: "26e7919b869d089e5096e898c0492898f935604c"
     notes: "Used for image preprocessing / background removal"
 
   # DINOv3 image feature extractor (loaded via transformers)
