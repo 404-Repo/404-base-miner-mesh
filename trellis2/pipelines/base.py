@@ -35,12 +35,10 @@ class Pipeline:
         """
         import os
         import json
-        from loguru import logger
         
         # Parse the main repo ID and get its revision from model_revisions
-        main_repo_parts = path.split('/')
-        main_repo_id = '/'.join(main_repo_parts[:2]) if len(main_repo_parts) >= 2 else path
-        revision = model_revisions.get(main_repo_id)
+        main_repo_id = '/'.join(path.split('/')[:2])
+        revision = model_revisions[main_repo_id]
         
         is_local = os.path.exists(f"{path}/{config_file}")
 
@@ -58,28 +56,12 @@ class Pipeline:
             if hasattr(cls, 'model_names_to_load') and k not in cls.model_names_to_load:
                 continue
             
-            # Try loading as a local/relative path first
             try:
                 _models[k] = models.from_pretrained(f"{path}/{v}", revision=revision)
-            except Exception as e:
-                # External model path - check if it's a different repo
-                v_parts = v.split('/')
-                if len(v_parts) >= 2:
-                    external_repo_id = '/'.join(v_parts[:2])
-                else:
-                    external_repo_id = v
-                
-                # Only use revision if it's the same repo, otherwise look up in model_revisions
-                if external_repo_id == main_repo_id:
-                    model_revision = revision
-                else:
-                    model_revision = model_revisions.get(external_repo_id)
-                    if model_revision:
-                        logger.info(f"Using pinned revision for external model {external_repo_id}: {model_revision}")
-                    else:
-                        logger.debug(f"No pinned revision for external model {external_repo_id}, using latest")
-                
-                _models[k] = models.from_pretrained(v, revision=model_revision)
+            except Exception:
+                # External model path
+                external_repo_id = '/'.join(v.split('/')[:2])
+                _models[k] = models.from_pretrained(v, revision=model_revisions[external_repo_id])
 
         new_pipeline = cls(_models)
         new_pipeline._pretrained_args = args

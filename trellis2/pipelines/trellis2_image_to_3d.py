@@ -96,17 +96,14 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         pipeline.shape_slat_normalization = args['shape_slat_normalization']
         pipeline.tex_slat_normalization = args['tex_slat_normalization']
 
-        # Get dinov3 revision from model_revisions
         image_cond_args = {**args['image_cond_model']['args']}
         dinov3_repo = image_cond_args.get('repo_id', 'facebook/dinov3-vitl16-pretrain-lvd1689m')
-        if dinov3_revision := model_revisions.get(dinov3_repo):
-            image_cond_args['revision'] = dinov3_revision
+        image_cond_args['revision'] = model_revisions[dinov3_repo]
         pipeline.image_cond_model = getattr(image_feature_extractor, args['image_cond_model']['name'])(**image_cond_args)
         
-        # Get birefnet revision from model_revisions
         pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(
             "ZhengPeng7/BiRefNet",
-            revision=model_revisions.get("ZhengPeng7/BiRefNet"),
+            revision=model_revisions["ZhengPeng7/BiRefNet"],
         )
 
         pipeline.default_pipeline_type = args.get('default_pipeline_type', '1024_cascade')

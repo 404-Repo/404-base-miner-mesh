@@ -36,12 +36,12 @@ def load_model_versions() -> dict[str, str]:
         data = yaml.safe_load(f)["huggingface"]
     
     # Extract revisions and validate
-    versions = {k: v["revision"] for k, v in data.items()}
+    model_versions = {k: v["revision"] for k, v in data.items()}
     
-    if missing := REQUIRED_MODELS - versions.keys():
+    if missing := REQUIRED_MODELS - model_versions.keys():
         raise ValueError(f"Missing required models in model_versions.yml: {missing}")
     
-    return versions
+    return model_versions
 
 
 def get_args() -> argparse.Namespace:
@@ -70,12 +70,12 @@ class MyFastAPI(FastAPI):
 async def lifespan(app: MyFastAPI) -> AsyncIterator[None]:
     logger.info("Loading Trellis 2 generator models ...")
     try:
-        versions = load_model_versions()
-        logger.info(f"Loaded pinned revisions for {len(versions)} models")
+        model_versions = load_model_versions()
+        logger.info(f"Loaded pinned revisions for {len(model_versions)} models")
         
         app.state.trellis_generator = Trellis2ImageTo3DPipeline.from_pretrained(
             "microsoft/TRELLIS.2-4B",
-            versions,
+            model_versions,
         )
         app.state.trellis_generator.to("cuda")
 
