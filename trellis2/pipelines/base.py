@@ -22,26 +22,25 @@ class Pipeline:
     def from_pretrained(
         cls,
         path: str,
+        model_revisions: dict[str, str],
         config_file: str = "pipeline.json",
-        revision: str = None,
-        model_revisions: dict[str, str] = None,
     ) -> "Pipeline":
         """
         Load a pretrained model.
 
         Args:
             path: The path to the model. Can be either local path or a Hugging Face repository.
+            model_revisions: Dict mapping repo IDs to their revisions.
             config_file: The name of the config file.
-            revision: Specific HuggingFace commit hash for the main model repo.
-            model_revisions: Dict mapping external repo IDs to their revisions.
-                             E.g. {"microsoft/TRELLIS-image-large": "abc123..."}
         """
         import os
         import json
         from loguru import logger
         
-        if model_revisions is None:
-            model_revisions = {}
+        # Parse the main repo ID and get its revision from model_revisions
+        main_repo_parts = path.split('/')
+        main_repo_id = '/'.join(main_repo_parts[:2]) if len(main_repo_parts) >= 2 else path
+        revision = model_revisions.get(main_repo_id)
         
         is_local = os.path.exists(f"{path}/{config_file}")
 
@@ -53,10 +52,6 @@ class Pipeline:
 
         with open(config_file, 'r') as f:
             args = json.load(f)['args']
-
-        # Parse the main repo ID (e.g. "microsoft/TRELLIS.2-4B")
-        main_repo_parts = path.split('/')
-        main_repo_id = '/'.join(main_repo_parts[:2]) if len(main_repo_parts) >= 2 else path
 
         _models = {}
         for k, v in args['models'].items():
