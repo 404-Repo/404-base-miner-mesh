@@ -2,6 +2,12 @@
 FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG GITHUB_USER
+ENV GITHUB_USER=${GITHUB_USER}
+
+ARG GITHUB_TOKEN
+ENV GITHUB_TOKEN=${GITHUB_TOKEN}
+
 LABEL name="trellis2-gen" maintainer="404gen"
 
 # Install docker dependencies
@@ -38,6 +44,9 @@ RUN apt-get update && apt-get install -y \
     cuda-nvtx-12-8 \
     && rm -rf /var/lib/apt/lists/*
 
+# Configure git to use GitHub credentials for all GitHub URLs
+RUN git config --global url."https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+
 # rebinding names for python, pip, gcc, g++
 RUN update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 120 &&  \
     update-alternatives --install /usr/bin/python python /usr/bin/python3 120
@@ -55,13 +64,15 @@ WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt /app/
-RUN wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl && \
-    pip install flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl && \
-    rm flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
+RUN curl -L -H "Authorization: token ${GITHUB_TOKEN}" \
+    -o flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl \
+    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
+RUN pip install flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
+RUN rm flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
 RUN pip install -r requirements.txt
 
 # Install utils3d
-RUN pip install git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
+RUN pip install git+https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
 
 # Install Kaolin
 RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.8.0_cu128.html
