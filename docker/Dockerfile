@@ -93,6 +93,11 @@ RUN git clone --depth 1 --branch 3.4.0 https://gitlab.com/libeigen/eigen.git /tm
     pip install /tmp/o-voxel --no-build-isolation && \
     rm -rf /tmp/o-voxel
 
+# Clean up GitHub credentials from git config and environment
+RUN git config --global --unset url."https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/".insteadOf || true
+ENV GITHUB_USER=
+ENV GITHUB_TOKEN=
+
 # Copy application source
 COPY . /app
 
