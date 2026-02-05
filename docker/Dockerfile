@@ -80,19 +80,28 @@ RUN --mount=type=secret,id=github_user \
     GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
     pip install git+https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
 
-
 # Install Kaolin
 RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.8.0_cu128.html
 
-# Install CuMesh
+# Install CuMesh with extended lambda support
 RUN git clone https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
-    pip install /tmp/CuMesh --no-build-isolation && \
+    cd /tmp/CuMesh && \
+    TORCH_CUDA_ARCH_LIST="8.9;9.0;10.0;12.0" \
+    NVCC_FLAGS="--extended-lambda" \
+    pip install . --no-build-isolation && \
+    cd / && \
     rm -rf /tmp/CuMesh
 
 # Install FlexGEMM
 RUN git clone https://github.com/JeffreyXiang/FlexGEMM.git /tmp/FlexGEMM --recursive && \
     pip install /tmp/FlexGEMM --no-build-isolation && \
     rm -rf /tmp/FlexGEMM
+
+# Copy o-voxel and install with eigen
+COPY o-voxel /tmp/o-voxel
+RUN git clone --depth 1 --branch 3.4.0 https://gitlab.com/libeigen/eigen.git /tmp/o-voxel/third_party/eigen && \
+    pip install /tmp/o-voxel --no-build-isolation && \
+    rm -rf /tmp/o-voxel
 
 # Clean up git credentials
 RUN git config --global --unset-all url."https://github.com/".insteadOf || true
