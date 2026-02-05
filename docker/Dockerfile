@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y \
     lld \
     zstd \
     ninja-build \
+    curl \
     python3.11  \
     python3-pip  \
     python3-wheel \
