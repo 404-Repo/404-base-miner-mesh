@@ -1,12 +1,7 @@
+# syntax=docker/dockerfile:1.4
 # Trellis2 generator
 FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 ENV DEBIAN_FRONTEND=noninteractive
-
-ARG GITHUB_USER
-ENV GITHUB_USER=${GITHUB_USER}
-
-ARG GITHUB_TOKEN
-ENV GITHUB_TOKEN=${GITHUB_TOKEN}
 
 LABEL name="trellis2-gen" maintainer="404gen"
 
@@ -44,8 +39,12 @@ RUN apt-get update && apt-get install -y \
     cuda-nvtx-12-8 \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure git to use GitHub credentials for all GitHub URLs
-RUN git config --global url."https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
+# Configure git to use GitHub credentials using secrets
+RUN --mount=type=secret,id=github_user \
+    --mount=type=secret,id=github_token \
+    GITHUB_USER=$(cat /run/secrets/github_user) && \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    git config --global url."https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
 
 # rebinding names for python, pip, gcc, g++
 RUN update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 120 &&  \
@@ -64,7 +63,9 @@ WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt /app/
-RUN curl -L -H "Authorization: token ${GITHUB_TOKEN}" \
+RUN --mount=type=secret,id=github_token \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    curl -L -H "Authorization: token ${GITHUB_TOKEN}" \
     -o flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl \
     https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
 RUN pip install flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
@@ -72,7 +73,11 @@ RUN rm flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
 RUN pip install -r requirements.txt
 
 # Install utils3d
-RUN pip install git+https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
+RUN --mount=type=secret,id=github_user \
+    --mount=type=secret,id=github_token \
+    GITHUB_USER=$(cat /run/secrets/github_user) && \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    pip install git+https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
 
 # Install Kaolin
 RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.8.0_cu128.html
@@ -93,10 +98,8 @@ RUN git clone --depth 1 --branch 3.4.0 https://gitlab.com/libeigen/eigen.git /tm
     pip install /tmp/o-voxel --no-build-isolation && \
     rm -rf /tmp/o-voxel
 
-# Clean up GitHub credentials from git config and environment
-RUN git config --global --unset url."https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/".insteadOf || true
-ENV GITHUB_USER=
-ENV GITHUB_TOKEN=
+# Clean up git credentials
+RUN git config --global --unset-all url."https://github.com/".insteadOf || true
 
 # Copy application source
 COPY . /app
