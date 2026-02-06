@@ -83,6 +83,9 @@ RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.c
 
 # Install CuMesh
 RUN git clone https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
+    cd /tmp/CuMesh && \
+    git checkout 063a7140a2ab3baed9d67135b354ea0b69e18272 && \
+    cd ../.. &&\
     pip install /tmp/CuMesh --no-build-isolation && \
     rm -rf /tmp/CuMesh
 
