@@ -81,13 +81,9 @@ RUN --mount=type=secret,id=github_user \
 # Install Kaolin
 RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.8.0_cu128.html
 
-# Install CuMesh with extended lambda support
+# Install CuMesh
 RUN git clone https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
-    cd /tmp/CuMesh && \
-    TORCH_CUDA_ARCH_LIST="8.9;9.0;10.0;12.0" \
-    NVCC_FLAGS="--extended-lambda" \
-    pip install . --no-build-isolation && \
-    cd / && \
+    pip install /tmp/CuMesh --no-build-isolation && \
     rm -rf /tmp/CuMesh
 
 # Install FlexGEMM
