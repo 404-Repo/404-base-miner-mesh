@@ -39,13 +39,6 @@ RUN apt-get update && apt-get install -y \
     cuda-nvtx-12-8 \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure git to use GitHub credentials using secrets
-RUN --mount=type=secret,id=github_user \
-    --mount=type=secret,id=github_token \
-    GITHUB_USER=$(cat /run/secrets/github_user) && \
-    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
-    git config --global url."https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"
-
 # rebinding names for python, pip, gcc, g++
 RUN update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 120 &&  \
     update-alternatives --install /usr/bin/python python /usr/bin/python3 120
@@ -83,34 +76,40 @@ RUN --mount=type=secret,id=github_user \
 # Install Kaolin
 RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.8.0_cu128.html
 
-# Install CuMesh
-ENV TORCH_CUDA_FLAGS="--extended-lambda"
-
-RUN git clone https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
+# Install CuMesh with scoped credentials
+RUN --mount=type=secret,id=github_user \
+    --mount=type=secret,id=github_token \
+    set -e && \
+    GITHUB_USER=$(cat /run/secrets/github_user) && \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    git clone https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
     cd /tmp/CuMesh && \
     git checkout c4ad6125924fcedfd13f0bd61520ca2d24eb7a87 && \
     git submodule update --recursive && \
-    cd ../.. &&\
+    cd / && \
     pip install /tmp/CuMesh --no-build-isolation && \
     rm -rf /tmp/CuMesh
 
-# Install FlexGEMM
-RUN git clone https://github.com/JeffreyXiang/FlexGEMM.git /tmp/FlexGEMM --recursive && \
+# Install FlexGEMM with scoped credentials
+RUN --mount=type=secret,id=github_user \
+    --mount=type=secret,id=github_token \
+    set -e && \
+    GITHUB_USER=$(cat /run/secrets/github_user) && \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    git clone https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/JeffreyXiang/FlexGEMM.git /tmp/FlexGEMM --recursive && \
     pip install /tmp/FlexGEMM --no-build-isolation && \
     rm -rf /tmp/FlexGEMM
 
 # Copy o-voxel and install with eigen
 COPY o-voxel /tmp/o-voxel
-RUN git clone --depth 1 --branch 3.4.0 https://gitlab.com/libeigen/eigen.git /tmp/o-voxel/third_party/eigen && \
-    pip install /tmp/o-voxel --no-build-isolation && \
-    rm -rf /tmp/o-voxel
-
-# Clean up git credentials - must match the exact key used during setup
 RUN --mount=type=secret,id=github_user \
     --mount=type=secret,id=github_token \
+    set -e && \
     GITHUB_USER=$(cat /run/secrets/github_user) && \
     GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
-    git config --global --unset url."https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/".insteadOf || true
+    git clone --depth 1 --branch 3.4.0 https://${GITHUB_USER}:${GITHUB_TOKEN}@gitlab.com/libeigen/eigen.git /tmp/o-voxel/third_party/eigen && \
+    pip install /tmp/o-voxel --no-build-isolation && \
+    rm -rf /tmp/o-voxel
 
 # Copy application source
 COPY . /app
