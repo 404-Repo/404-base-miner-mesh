@@ -45,30 +45,28 @@ bash cleanup_env.sh
 ### How to run:
 - Docker (run locally):
 
-**Build the image:**
+**Build the image (token-only authentication):**
 ```bash
-# Option 1: Using secret files (recommended)
-echo "your_github_username" > github_user.txt
+# Option 1: Using secret file (recommended)
 echo "your_github_token" > github_token.txt
 
 DOCKER_BUILDKIT=1 docker build \
-  --secret id=github_user,src=github_user.txt \
   --secret id=github_token,src=github_token.txt \
   -t trellis2-gen \
   -f docker/Dockerfile .
 
-rm github_user.txt github_token.txt
+rm github_token.txt
 
-# Option 2: Using environment variables
-export GITHUB_USER="your_github_username"
+# Option 2: Using environment variable
 export GITHUB_TOKEN="your_github_token"
 
 DOCKER_BUILDKIT=1 docker build \
-  --secret id=github_user,env=GITHUB_USER \
   --secret id=github_token,env=GITHUB_TOKEN \
   -t trellis2-gen \
   -f docker/Dockerfile .
 ```
+
+**Note:** Generate a GitHub Personal Access Token at https://github.com/settings/tokens with `repo` scope.
 
 **Run the container:**
 ```bash
