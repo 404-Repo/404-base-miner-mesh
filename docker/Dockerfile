@@ -49,7 +49,8 @@ ENV LD_LIBRARY_PATH=/usr/lib64:$LD_LIBRARY_PATH
 ENV CUDA_HOME=/usr/local/cuda-12.8
 ENV PATH=$CUDA_HOME/bin:$PATH
 ENV LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
-ENV TORCH_CUDA_ARCH_LIST="8.9;9.0;10.0;12.0"
+ENV TORCH_CUDA_ARCH_LIST="8.9;9.0;12.0"
+ENV TORCH_CUDA_FLAGS="--extended-lambda"
 
 WORKDIR /app
 
@@ -68,6 +69,9 @@ RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.c
 
 # Install CuMesh
 RUN git clone https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
+    cd /tmp/CuMesh && \
+    git checkout c4ad6125924fcedfd13f0bd61520ca2d24eb7a87 && \
+    cd ../.. &&\
     pip install /tmp/CuMesh --no-build-isolation && \
     rm -rf /tmp/CuMesh
 
