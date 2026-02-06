@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     lld \
     zstd \
     ninja-build \
+    curl \
     python3.11  \
     python3-pip  \
     python3-wheel \
@@ -56,33 +57,49 @@ WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt /app/
-RUN wget https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl && \
+RUN --mount=type=secret,id=github_token \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    curl -fL --proto-redir =https -H "Authorization: token ${GITHUB_TOKEN}" \
+    -o flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl \
+    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl && \
     pip install flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl && \
     rm flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
 RUN pip install -r requirements.txt
 
 # Install utils3d
-RUN pip install git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
+RUN --mount=type=secret,id=github_token \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    pip install git+https://${GITHUB_TOKEN}@github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
 
 # Install Kaolin
 RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.8.0_cu128.html
 
-# Install CuMesh
-RUN git clone https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
+# Install CuMesh with scoped credentials
+RUN --mount=type=secret,id=github_token \
+    set -e && \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    git clone https://${GITHUB_TOKEN}@github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
     cd /tmp/CuMesh && \
     git checkout c4ad6125924fcedfd13f0bd61520ca2d24eb7a87 && \
-    cd ../.. &&\
+    git submodule update --recursive && \
+    cd / && \
     pip install /tmp/CuMesh --no-build-isolation && \
     rm -rf /tmp/CuMesh
 
-# Install FlexGEMM
-RUN git clone https://github.com/JeffreyXiang/FlexGEMM.git /tmp/FlexGEMM --recursive && \
+# Install FlexGEMM with scoped credentials
+RUN --mount=type=secret,id=github_token \
+    set -e && \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    git clone https://${GITHUB_TOKEN}@github.com/JeffreyXiang/FlexGEMM.git /tmp/FlexGEMM --recursive && \
     pip install /tmp/FlexGEMM --no-build-isolation && \
     rm -rf /tmp/FlexGEMM
 
 # Copy o-voxel and install with eigen
 COPY o-voxel /tmp/o-voxel
-RUN git clone --depth 1 --branch 3.4.0 https://gitlab.com/libeigen/eigen.git /tmp/o-voxel/third_party/eigen && \
+RUN --mount=type=secret,id=github_token \
+    set -e && \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    git clone --depth 1 --branch 3.4.0 https://${GITHUB_TOKEN}@gitlab.com/libeigen/eigen.git /tmp/o-voxel/third_party/eigen && \
     pip install /tmp/o-voxel --no-build-isolation && \
     rm -rf /tmp/o-voxel
 

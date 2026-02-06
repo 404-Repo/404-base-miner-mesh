@@ -44,12 +44,40 @@ bash cleanup_env.sh
 
 ### How to run:
 - Docker (run locally):
-```commandline
-docker run --gpus all -it docker_name:docker-tag bash
 
-# outside docker
+**Build the image (token-only authentication):**
+```bash
+# Option 1: Using secret file (recommended)
+echo "your_github_token" > github_token.txt
+
+DOCKER_BUILDKIT=1 docker build \
+  --secret id=github_token,src=github_token.txt \
+  -t trellis2-gen \
+  -f docker/Dockerfile .
+
+rm github_token.txt
+
+# Option 2: Using environment variable
+export GITHUB_TOKEN="your_github_token"
+
+DOCKER_BUILDKIT=1 docker build \
+  --secret id=github_token,env=GITHUB_TOKEN \
+  -t trellis2-gen \
+  -f docker/Dockerfile .
+```
+
+**Note:** Generate a GitHub Personal Access Token at https://github.com/settings/tokens with `repo` scope.
+
+**Run the container:**
+```bash
+docker run --gpus all -p 10006:10006 trellis2-gen
+```
+
+**Test the API:**
+```bash
 curl -X POST "http://0.0.0.0:10006/generate" -F prompt_image_file=@sample_image.png -o sample_model.glb
 ```
+
 - Conda Env.:
 ```commandline
 # start pm2 process
