@@ -82,9 +82,11 @@ RUN --mount=type=secret,id=github_user \
 RUN pip install kaolin==0.18.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.8.0_cu128.html
 
 # Install CuMesh
+ENV TORCH_CUDA_FLAGS="--extended-lambda"
+
 RUN git clone https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
     cd /tmp/CuMesh && \
-    git checkout 063a7140a2ab3baed9d67135b354ea0b69e18272 && \
+    git checkout c4ad6125924fcedfd13f0bd61520ca2d24eb7a87 && \
     cd ../.. &&\
     pip install /tmp/CuMesh --no-build-isolation && \
     rm -rf /tmp/CuMesh
