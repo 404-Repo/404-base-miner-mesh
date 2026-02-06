@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.4
+# Trellis2 generator
 FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -64,11 +66,11 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN --mount=type=secret,id=github_token \
     GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
-    curl -L -H "Authorization: token ${GITHUB_TOKEN}" \
+    curl -fL --proto-redir =https -H "Authorization: token ${GITHUB_TOKEN}" \
     -o flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl \
-    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
-RUN pip install flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
-RUN rm flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
+    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl && \
+    pip install flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl && \
+    rm flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp311-cp311-linux_x86_64.whl
 RUN pip install -r requirements.txt
 
 # Install utils3d
@@ -87,6 +89,7 @@ ENV TORCH_CUDA_FLAGS="--extended-lambda"
 RUN git clone https://github.com/JeffreyXiang/CuMesh.git /tmp/CuMesh --recursive && \
     cd /tmp/CuMesh && \
     git checkout c4ad6125924fcedfd13f0bd61520ca2d24eb7a87 && \
+    git submodule update --recursive && \
     cd ../.. &&\
     pip install /tmp/CuMesh --no-build-isolation && \
     rm -rf /tmp/CuMesh
@@ -102,8 +105,12 @@ RUN git clone --depth 1 --branch 3.4.0 https://gitlab.com/libeigen/eigen.git /tm
     pip install /tmp/o-voxel --no-build-isolation && \
     rm -rf /tmp/o-voxel
 
-# Clean up git credentials
-RUN git config --global --unset-all url."https://github.com/".insteadOf || true
+# Clean up git credentials - must match the exact key used during setup
+RUN --mount=type=secret,id=github_user \
+    --mount=type=secret,id=github_token \
+    GITHUB_USER=$(cat /run/secrets/github_user) && \
+    GITHUB_TOKEN=$(cat /run/secrets/github_token) && \
+    git config --global --unset url."https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/".insteadOf || true
 
 # Copy application source
 COPY . /app
