@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.4
 # Trellis2 generator
 FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 ENV DEBIAN_FRONTEND=noninteractive
