@@ -1,6 +1,7 @@
 import gc
 import argparse
 import asyncio
+import os
 from io import BytesIO
 from pathlib import Path
 from time import time
@@ -49,7 +50,16 @@ def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=10006)
-    return parser.parse_args()
+    parser.add_argument(
+        "--hf-api-key",
+        default=None,
+        help="Hugging Face API token for gated models (or set HF_TOKEN / HUGGING_FACE_HUB_TOKEN env var)",
+    )
+    args = parser.parse_args()
+    if args.hf_api_key:
+        os.environ["HF_TOKEN"] = args.hf_api_key
+        os.environ["HUGGING_FACE_HUB_TOKEN"] = args.hf_api_key
+    return args
 
 
 def clean_vram() -> None:
