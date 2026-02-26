@@ -90,7 +90,7 @@ app = MyFastAPI(title="404 Base Miner Service", version="0.0.0")
 app.router.lifespan_context = lifespan
 
 
-def generation_block(prompt_image: Image.Image, seed: int = -1, face_count: int = 1000000):
+def generation_block(prompt_image: Image.Image, seed: int = -1, face_count: int = 100000):
     """ Function for 3D data generation using provided image"""
 
     t_start = time()
@@ -129,7 +129,7 @@ def generation_block(prompt_image: Image.Image, seed: int = -1, face_count: int 
 
 
 @app.post("/generate")
-async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), face_count:int = Form(1000000)) -> Response:
+async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), face_count:int = Form(100000)) -> Response:
     """ Generates a 3D model as GLB file """
 
     logger.info("Task received. Prompt-Image")
