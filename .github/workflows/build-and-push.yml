@@ -1,0 +1,69 @@
+name: Bake and push images GCR
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  bake-push:
+    name: Bake and push images to Google Cloud
+    runs-on: arc-x86
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    steps:
+      - 
+        name: Checkout
+        uses: actions/checkout@v5
+
+      - 
+        name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v3'
+        with:
+          version: '>= 363.0.0'
+      - 
+        name: Log in to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: gen-456515
+          workload_identity_provider: projects/369621634572/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-404-repo
+      - 
+        name: Configure Docker to use gcloud
+        run: |
+          gcloud auth configure-docker europe-west3-docker.pkg.dev
+      -
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - 
+        name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+      -
+        name: Set version from SHA7
+        run: |
+          echo "DOCKER_TAG=v${GITHUB_SHA::7}" >> $GITHUB_ENV
+      -
+        name: Overwrite version from Github ref
+        if: ${{ github.ref_type == 'tag' }}
+        run: |
+          echo "DOCKER_TAG=$GITHUB_REF_NAME" >> $GITHUB_ENV
+        
+      -
+        name: Build and push
+        uses: docker/bake-action@v6
+        env:
+          VERSION: ${{  env.DOCKER_TAG }}
+          CACHE_FROM: type=registry,ref=europe-west3-docker.pkg.dev/gen-456515/eu-dockers-cache/shared
+          CACHE_TO: ${{ strategy.job-index == 0 && 'type=registry,ref=europe-west3-docker.pkg.dev/gen-456515/eu-dockers-cache/shared,mode=max,compression=zstd' || '' }}
+        with:
+          files: |
+            ./docker-bake.hcl
+          push: true
+          provenance: false
+      -
+        name: Display image URL
+        run: |
+          echo "::notice title=Built Image::europe-west3-docker.pkg.dev/gen-456515/base-miner-mesh/base-miner-mesh:${{ env.DOCKER_TAG }}"
