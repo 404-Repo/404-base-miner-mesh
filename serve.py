@@ -1,11 +1,13 @@
 import gc
+import yaml
+import json
 import argparse
 import asyncio
 from io import BytesIO
 from pathlib import Path
 from time import time
 
-import yaml
+
 import torch
 import uvicorn
 from PIL import Image
@@ -110,11 +112,11 @@ app = MyFastAPI(title="404 Base Miner Service", version="0.0.0")
 app.router.lifespan_context = lifespan
 
 
-def generation_block(prompt_image: Image.Image, seed: int = -1, **params: dict) -> BytesIO:
+def generation_block(prompt_image: Image.Image, params_dict:dict, seed: int = -1) -> BytesIO:
     """ Function for 3D data generation using provided image"""
 
     t_start = time()
-    face_count, texture_size, pipeline_type = parse_parameters_args(params)
+    face_count, texture_size, pipeline_type = parse_parameters_args(params_dict)
 
     mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=pipeline_type)[0]
     mesh.simplify()
@@ -151,7 +153,7 @@ def generation_block(prompt_image: Image.Image, seed: int = -1, **params: dict) 
 
 
 @app.post("/generate")
-async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: dict = Form(None)) -> Response:
+async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: str|None = Form(None)) -> Response:
     """ Generates a 3D model as GLB file """
 
     logger.info("Task received. Prompt-Image")
@@ -159,16 +161,25 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
     contents = await prompt_image_file.read()
     prompt_image = Image.open(BytesIO(contents))
 
+    params_dict = json.loads(params) if params else {}
+
     loop = asyncio.get_running_loop()
-    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, seed, params)
-    buffer_size = len(buffer.getvalue())
+    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed)
+    # buffer_size = len(buffer.getvalue())
+    # buffer.seek(0)
+
+    buffer.seek(0, 2)
+    buffer_size = buffer.tell()
     buffer.seek(0)
+
     logger.info(f"Task completed.")
 
     async def generate_chunks():
         chunk_size = 1024 * 1024  # 1 MB
         while chunk := buffer.read(chunk_size):
             yield chunk
+
+    clean_vram()
 
     return StreamingResponse(
         generate_chunks(),
