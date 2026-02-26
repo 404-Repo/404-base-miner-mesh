@@ -52,6 +52,26 @@ def get_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def parse_parameters_args(params: dict | None) -> tuple[int, int, str]:
+    params = params or {}
+
+    face_count = params.get("face_count", 100000)
+
+    texture_size = params.get("texture_size", 2048)
+    if texture_size not in (1024, 2048, 4096):
+        texture_size = 2048
+
+    pipeline_type = params.get("pipeline_type", "1024_cascade")
+    if pipeline_type not in ("512", "1024", "1024_cascade", "1536_cascade"):
+        pipeline_type = "1024_cascade"
+
+    logger.info(f"Pipeline Type: {pipeline_type}")
+    logger.info(f"Texture size: {texture_size}")
+    logger.info(f"Face count: {face_count}")
+
+    return face_count, texture_size, pipeline_type
+
+
 def clean_vram() -> None:
     """ Function for cleaning VRAM. """
     gc.collect()
@@ -90,11 +110,13 @@ app = MyFastAPI(title="404 Base Miner Service", version="0.0.0")
 app.router.lifespan_context = lifespan
 
 
-def generation_block(prompt_image: Image.Image, seed: int = -1, face_count: int = 100000):
+def generation_block(prompt_image: Image.Image, seed: int = -1, **params: dict) -> BytesIO:
     """ Function for 3D data generation using provided image"""
 
     t_start = time()
-    mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type="1024_cascade")[0]
+    face_count, texture_size, pipeline_type = parse_parameters_args(params)
+
+    mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=pipeline_type)[0]
     mesh.simplify()
 
     glb = o_voxel.postprocess.to_glb(
@@ -106,7 +128,7 @@ def generation_block(prompt_image: Image.Image, seed: int = -1, face_count: int 
         voxel_size=mesh.voxel_size,
         aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
         decimation_target=face_count,
-        texture_size=1024,
+        texture_size=texture_size,
         remesh=True,
         remesh_band=1,
         remesh_project=0,
@@ -129,7 +151,7 @@ def generation_block(prompt_image: Image.Image, seed: int = -1, face_count: int 
 
 
 @app.post("/generate")
-async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), face_count:int = Form(100000)) -> Response:
+async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: dict = Form(None)) -> Response:
     """ Generates a 3D model as GLB file """
 
     logger.info("Task received. Prompt-Image")
@@ -138,7 +160,7 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
     prompt_image = Image.open(BytesIO(contents))
 
     loop = asyncio.get_running_loop()
-    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, seed, face_count)
+    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, seed, params)
     buffer_size = len(buffer.getvalue())
     buffer.seek(0)
     logger.info(f"Task completed.")
