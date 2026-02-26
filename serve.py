@@ -90,7 +90,7 @@ app = MyFastAPI(title="404 Base Miner Service", version="0.0.0")
 app.router.lifespan_context = lifespan
 
 
-def generation_block(prompt_image: Image.Image, seed: int = -1):
+def generation_block(prompt_image: Image.Image, seed: int = -1, face_count: int = 1000000):
     """ Function for 3D data generation using provided image"""
 
     t_start = time()
@@ -105,7 +105,7 @@ def generation_block(prompt_image: Image.Image, seed: int = -1):
         attr_layout=mesh.layout,
         voxel_size=mesh.voxel_size,
         aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
-        decimation_target=1000000,
+        decimation_target=face_count,
         texture_size=1024,
         remesh=True,
         remesh_band=1,
@@ -129,7 +129,7 @@ def generation_block(prompt_image: Image.Image, seed: int = -1):
 
 
 @app.post("/generate")
-async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1)) -> Response:
+async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), face_count:int = Form(1000000)) -> Response:
     """ Generates a 3D model as GLB file """
 
     logger.info("Task received. Prompt-Image")
@@ -138,7 +138,7 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
     prompt_image = Image.open(BytesIO(contents))
 
     loop = asyncio.get_running_loop()
-    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, seed)
+    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, seed, face_count)
     buffer_size = len(buffer.getvalue())
     buffer.seek(0)
     logger.info(f"Task completed.")
