@@ -51,7 +51,7 @@ export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
 export CPLUS_INCLUDE_PATH="$CONDA_PREFIX/targets/x86_64-linux/include:${CPLUS_INCLUDE_PATH:-}"
 export C_INCLUDE_PATH="$CONDA_PREFIX/targets/x86_64-linux/include:${C_INCLUDE_PATH:-}"
 export LIBRARY_PATH="$CONDA_PREFIX/lib/stubs:${LIBRARY_PATH:-}"
-export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.0;8.6;8.9;9.0}"
+export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:8.0;8.6;8.9;9.0}"
 SH
 
 cat > "$CONDA_PREFIX/etc/conda/deactivate.d/cuda.sh" <<'SH'
@@ -74,7 +74,7 @@ fi
 pip install git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8
 
 # Force CUDA arch flags for builds without GPU access
-export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:-8.9;9.0;12.0}"
+export TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST:8.9;9.0;12.0}"
 export FORCE_CUDA=1
 
 TEMP_DIR="/tmp/extensions"
