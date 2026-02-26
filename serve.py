@@ -63,9 +63,9 @@ def parse_parameters_args(params: dict | None) -> tuple[int, int, str]:
     if texture_size not in (1024, 2048, 4096):
         texture_size = 2048
 
-    pipeline_type = params.get("pipeline_type", "1024_cascade")
+    pipeline_type = params.get("pipeline_type", "1536_cascade")
     if pipeline_type not in ("512", "1024", "1024_cascade", "1536_cascade"):
-        pipeline_type = "1024_cascade"
+        pipeline_type = "1536_cascade"
 
     logger.info(f"Pipeline Type: {pipeline_type}")
     logger.info(f"Texture size: {texture_size}")
