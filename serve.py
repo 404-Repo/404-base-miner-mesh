@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from loguru import logger
+from pydantic import BaseModel, field_validator
 from fastapi import FastAPI,  UploadFile, File, APIRouter, Form
 from fastapi.responses import Response, StreamingResponse
 from starlette.datastructures import State
@@ -54,24 +55,37 @@ def get_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def parse_parameters_args(params: dict | None) -> tuple[int, int, str]:
+class Parameters(BaseModel):
+    texture_size: int = 2048
+    pipeline_type: str = "1024_cascade"
+    face_count: int = 100000
+
+    @field_validator('texture_size')
+    @classmethod
+    def validate_texture_size(cls, texture_size: int) -> int:
+        if texture_size not in (1024, 2048, 4096):
+            logger.warning(f"Unsupported texture size. Supported texture sizes: [1024, 2048, 4096]. Default to 2048.")
+            texture_size = 2048
+        return texture_size
+
+    @field_validator("pipeline_type")
+    @classmethod
+    def validate_pipeline_type(cls, pipeline_type: str) -> str:
+        if pipeline_type not in ("512", "1024", "1024_cascade", "1536_cascade"):
+            logger.warning(f"Unsupported 3d pipeline. Supported texture sizes: [512, 1024, 1024_cascade, 1536_cascade]. Default to 1024_cascade.")
+            pipeline_type = "1024_cascade"
+        return pipeline_type
+
+
+def parse_parameters_args(params: dict | None) -> Parameters:
     params = params or {}
+    parsed_params = Parameters(**params)
 
-    face_count = params.get("face_count", 100000)
+    logger.info(f"Pipeline Type: {parsed_params.pipeline_type}")
+    logger.info(f"Texture size: {parsed_params.texture_size}")
+    logger.info(f"Face count: {parsed_params.face_count}")
 
-    texture_size = params.get("texture_size", 2048)
-    if texture_size not in (1024, 2048, 4096):
-        texture_size = 2048
-
-    pipeline_type = params.get("pipeline_type", "1024_cascade")
-    if pipeline_type not in ("512", "1024", "1024_cascade", "1536_cascade"):
-        pipeline_type = "1024_cascade"
-
-    logger.info(f"Pipeline Type: {pipeline_type}")
-    logger.info(f"Texture size: {texture_size}")
-    logger.info(f"Face count: {face_count}")
-
-    return face_count, texture_size, pipeline_type
+    return parsed_params
 
 
 def clean_vram() -> None:
@@ -116,9 +130,9 @@ def generation_block(prompt_image: Image.Image, params_dict:dict, seed: int = -1
     """ Function for 3D data generation using provided image"""
 
     t_start = time()
-    face_count, texture_size, pipeline_type = parse_parameters_args(params_dict)
+    parsed_params = parse_parameters_args(params_dict)
 
-    mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=pipeline_type)[0]
+    mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=parsed_params.pipeline_type)[0]
     mesh.simplify()
 
     glb = o_voxel.postprocess.to_glb(
@@ -129,8 +143,8 @@ def generation_block(prompt_image: Image.Image, params_dict:dict, seed: int = -1
         attr_layout=mesh.layout,
         voxel_size=mesh.voxel_size,
         aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
-        decimation_target=face_count,
-        texture_size=texture_size,
+        decimation_target=parsed_params.face_count,
+        texture_size=parsed_params.texture_size,
         remesh=True,
         remesh_band=1,
         remesh_project=0,
@@ -165,8 +179,6 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
 
     loop = asyncio.get_running_loop()
     buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed)
-    # buffer_size = len(buffer.getvalue())
-    # buffer.seek(0)
 
     buffer.seek(0, 2)
     buffer_size = buffer.tell()
