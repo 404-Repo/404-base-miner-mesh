@@ -1,11 +1,13 @@
 import gc
+import yaml
+import json
 import argparse
 import asyncio
 from io import BytesIO
 from pathlib import Path
 from time import time
 
-import yaml
+
 import torch
 import uvicorn
 from PIL import Image
@@ -13,6 +15,7 @@ from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from loguru import logger
+from pydantic import BaseModel, field_validator
 from fastapi import FastAPI,  UploadFile, File, APIRouter, Form
 from fastapi.responses import Response, StreamingResponse
 from starlette.datastructures import State
@@ -50,6 +53,39 @@ def get_args() -> argparse.Namespace:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=10006)
     return parser.parse_args()
+
+
+class Parameters(BaseModel):
+    texture_size: int = 2048
+    pipeline_type: str = "1024_cascade"
+    face_count: int = 100000
+
+    @field_validator('texture_size')
+    @classmethod
+    def validate_texture_size(cls, texture_size: int) -> int:
+        if texture_size not in (1024, 2048, 4096):
+            logger.warning(f"Unsupported texture size. Supported texture sizes: [1024, 2048, 4096]. Default to 2048.")
+            texture_size = 2048
+        return texture_size
+
+    @field_validator("pipeline_type")
+    @classmethod
+    def validate_pipeline_type(cls, pipeline_type: str) -> str:
+        if pipeline_type not in ("512", "1024", "1024_cascade", "1536_cascade"):
+            logger.warning(f"Unsupported 3d pipeline. Supported texture sizes: [512, 1024, 1024_cascade, 1536_cascade]. Default to 1024_cascade.")
+            pipeline_type = "1024_cascade"
+        return pipeline_type
+
+
+def parse_parameters_args(params: dict | None) -> Parameters:
+    params = params or {}
+    parsed_params = Parameters(**params)
+
+    logger.info(f"Pipeline Type: {parsed_params.pipeline_type}")
+    logger.info(f"Texture size: {parsed_params.texture_size}")
+    logger.info(f"Face count: {parsed_params.face_count}")
+
+    return parsed_params
 
 
 def clean_vram() -> None:
@@ -90,11 +126,13 @@ app = MyFastAPI(title="404 Base Miner Service", version="0.0.0")
 app.router.lifespan_context = lifespan
 
 
-def generation_block(prompt_image: Image.Image, seed: int = -1):
+def generation_block(prompt_image: Image.Image, params_dict:dict, seed: int = -1) -> BytesIO:
     """ Function for 3D data generation using provided image"""
 
     t_start = time()
-    mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type="1024_cascade")[0]
+    parsed_params = parse_parameters_args(params_dict)
+
+    mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=parsed_params.pipeline_type)[0]
     mesh.simplify()
 
     glb = o_voxel.postprocess.to_glb(
@@ -105,8 +143,8 @@ def generation_block(prompt_image: Image.Image, seed: int = -1):
         attr_layout=mesh.layout,
         voxel_size=mesh.voxel_size,
         aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
-        decimation_target=1000000,
-        texture_size=1024,
+        decimation_target=parsed_params.face_count,
+        texture_size=parsed_params.texture_size,
         remesh=True,
         remesh_band=1,
         remesh_project=0,
@@ -129,7 +167,7 @@ def generation_block(prompt_image: Image.Image, seed: int = -1):
 
 
 @app.post("/generate")
-async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1)) -> Response:
+async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: str|None = Form(None)) -> Response:
     """ Generates a 3D model as GLB file """
 
     logger.info("Task received. Prompt-Image")
@@ -137,16 +175,23 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
     contents = await prompt_image_file.read()
     prompt_image = Image.open(BytesIO(contents))
 
+    params_dict = json.loads(params) if params else {}
+
     loop = asyncio.get_running_loop()
-    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, seed)
-    buffer_size = len(buffer.getvalue())
+    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed)
+
+    buffer.seek(0, 2)
+    buffer_size = buffer.tell()
     buffer.seek(0)
+
     logger.info(f"Task completed.")
 
     async def generate_chunks():
         chunk_size = 1024 * 1024  # 1 MB
         while chunk := buffer.read(chunk_size):
             yield chunk
+
+    clean_vram()
 
     return StreamingResponse(
         generate_chunks(),
