@@ -1,4 +1,6 @@
 import gc
+import os
+import socket
 import yaml
 import json
 import argparse
@@ -6,7 +8,8 @@ import asyncio
 from io import BytesIO
 from pathlib import Path
 from time import time
-
+from contextlib import nullcontext
+from typing import Literal
 
 import torch
 import uvicorn
@@ -22,6 +25,9 @@ from starlette.datastructures import State
 
 import o_voxel
 from trellis2.pipelines import Trellis2ImageTo3DPipeline
+from loki_logger import LokiLogManager
+from prometheus_manager import VictoriaMetricsManager
+from settings import settings
 
 
 REQUIRED_MODELS = {
@@ -96,6 +102,31 @@ def clean_vram() -> None:
 
 executor = ThreadPoolExecutor(max_workers=1)
 
+
+def detect_instance_identity() -> tuple[str, Literal["verda", "runpod"]]:
+    if pod_id := os.environ.get("RUNPOD_POD_ID"):
+        logger.info(f"Detected RunPod, pod ID: {pod_id}")
+        return pod_id, "runpod"
+    container_id = socket.gethostname()
+    logger.info(f"Detected Verda, container ID: {container_id}")
+    return container_id, "verda"
+
+
+def _build_loki_log_manager(*, worker_id: str, worker_type: Literal["verda", "runpod"]) -> LokiLogManager | None:
+    if not settings.loki_enabled:
+        return None
+    return LokiLogManager(
+        endpoint=settings.loki_endpoint,
+        username=settings.loki_username,
+        password=settings.loki_password.get_secret_value(),
+        worker_id=worker_id,
+        worker_type=worker_type,
+        push_interval_seconds=settings.loki_push_interval_seconds,
+        batch_size=settings.loki_batch_size,
+        timeout_seconds=settings.loki_timeout_seconds,
+    )
+
+
 class MyFastAPI(FastAPI):
     state: State
     router: APIRouter
@@ -104,22 +135,46 @@ class MyFastAPI(FastAPI):
 
 @asynccontextmanager
 async def lifespan(app: MyFastAPI) -> AsyncIterator[None]:
-    logger.info("Loading Trellis 2 generator models ...")
-    try:
-        model_versions = load_model_versions()
-        logger.info(f"Loaded pinned revisions for {len(model_versions)} models")
-        
-        app.state.trellis_generator = Trellis2ImageTo3DPipeline.from_pretrained(
-            "microsoft/TRELLIS.2-4B",
-            model_versions,
-        )
-        app.state.trellis_generator.to("cuda")
+    instance_id, instance_type = detect_instance_identity()
+    loki_manager = _build_loki_log_manager(worker_id=instance_id, worker_type=instance_type)
+    loki_sink_id: int | None = None
 
-    except Exception as e:
-        logger.exception(f"Exception during model loading: {e}")
-        raise SystemExit("Model failed to load → exiting server")
+    async with (
+        loki_manager or nullcontext(),
+        VictoriaMetricsManager(
+            pushgateway_url=settings.prometheus_push_gateway_url,
+            username=settings.prometheus_push_gateway_username,
+            password=settings.prometheus_push_gateway_password.get_secret_value(),
+        ) as victoria_manager,
+    ):
+        if loki_manager is not None:
+            loki_sink_id = logger.add(loki_manager.sink, level="DEBUG", enqueue=True)
+            logger.info("Loki log shipping is enabled.")
 
-    yield
+        app.state.victoria_manager = victoria_manager
+        app.state.instance_id = instance_id
+        app.state.instance_type = instance_type
+
+        logger.info("Loading Trellis 2 generator models ...")
+        try:
+            model_versions = load_model_versions()
+            logger.info(f"Loaded pinned revisions for {len(model_versions)} models")
+
+            app.state.trellis_generator = Trellis2ImageTo3DPipeline.from_pretrained(
+                "microsoft/TRELLIS.2-4B",
+                model_versions,
+            )
+            app.state.trellis_generator.to("cuda")
+
+        except Exception as e:
+            logger.exception(f"Exception during model loading: {e}")
+            raise SystemExit("Model failed to load → exiting server")
+
+        yield
+
+        logger.info("Shutting down...")
+        if loki_sink_id is not None:
+            logger.remove(loki_sink_id)
 
 
 app = MyFastAPI(title="404 Base Miner Service", version="0.0.0")
@@ -167,7 +222,7 @@ def generation_block(prompt_image: Image.Image, params_dict:dict, seed: int = -1
 
 
 @app.post("/generate")
-async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: str|None = Form(None)) -> Response:
+async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: str|None = Form(None), task_id: str = Form("")) -> Response:
     """ Generates a 3D model as GLB file """
 
     logger.info("Task received. Prompt-Image")
@@ -178,7 +233,23 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
     params_dict = json.loads(params) if params else {}
 
     loop = asyncio.get_running_loop()
-    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed)
+    t_start = time()
+    try:
+        buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed)
+        generation_time = time() - t_start
+        await app.state.victoria_manager.record_generation_metric(
+            generation_time=generation_time,
+            worker_id=app.state.instance_id,
+            worker_type=app.state.instance_type,
+            task_id=task_id,
+        )
+    except Exception:
+        await app.state.victoria_manager.record_generation_error_metric(
+            worker_id=app.state.instance_id,
+            worker_type=app.state.instance_type,
+            task_id=task_id,
+        )
+        raise
 
     buffer.seek(0, 2)
     buffer_size = buffer.tell()
