@@ -83,13 +83,17 @@ class Parameters(BaseModel):
         return pipeline_type
 
 
-def parse_parameters_args(params: dict | None) -> Parameters:
+def format_task_log(task_id: str, message: str) -> str:
+    return f"{task_id}: {message}"
+
+
+def parse_parameters_args(params: dict | None, task_id: str) -> Parameters:
     params = params or {}
     parsed_params = Parameters(**params)
 
-    logger.info(f"Pipeline Type: {parsed_params.pipeline_type}")
-    logger.info(f"Texture size: {parsed_params.texture_size}")
-    logger.info(f"Face count: {parsed_params.face_count}")
+    logger.info(format_task_log(task_id, f"Pipeline Type: {parsed_params.pipeline_type}"))
+    logger.info(format_task_log(task_id, f"Texture size: {parsed_params.texture_size}"))
+    logger.info(format_task_log(task_id, f"Face count: {parsed_params.face_count}"))
 
     return parsed_params
 
@@ -181,11 +185,11 @@ app = MyFastAPI(title="404 Base Miner Service", version="0.0.0")
 app.router.lifespan_context = lifespan
 
 
-def generation_block(prompt_image: Image.Image, params_dict:dict, seed: int = -1) -> BytesIO:
+def generation_block(prompt_image: Image.Image, params_dict: dict, seed: int = -1, task_id: str = "") -> BytesIO:
     """ Function for 3D data generation using provided image"""
 
     t_start = time()
-    parsed_params = parse_parameters_args(params_dict)
+    parsed_params = parse_parameters_args(params_dict, task_id)
 
     mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=parsed_params.pipeline_type)[0]
     mesh.simplify()
@@ -211,12 +215,12 @@ def generation_block(prompt_image: Image.Image, params_dict:dict, seed: int = -1
     buffer.seek(0)
 
     t_get_model = time()
-    logger.debug(f"Model Generation took: {(t_get_model - t_start)} secs.")
+    logger.debug(format_task_log(task_id, f"Model Generation took: {(t_get_model - t_start)} secs."))
 
     clean_vram()
 
     t_gc = time()
-    logger.debug(f"Garbage Collection took: {(t_gc - t_get_model)} secs")
+    logger.debug(format_task_log(task_id, f"Garbage Collection took: {(t_gc - t_get_model)} secs"))
 
     return buffer
 
@@ -225,7 +229,7 @@ def generation_block(prompt_image: Image.Image, params_dict:dict, seed: int = -1
 async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: str|None = Form(None), task_id: str = Form("")) -> Response:
     """ Generates a 3D model as GLB file """
 
-    logger.info("Task received. Prompt-Image")
+    logger.info(format_task_log(task_id, "Task received. Prompt-Image"))
 
     contents = await prompt_image_file.read()
     prompt_image = Image.open(BytesIO(contents))
@@ -235,7 +239,7 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
     loop = asyncio.get_running_loop()
     t_start = time()
     try:
-        buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed)
+        buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed, task_id)
         generation_time = time() - t_start
         await app.state.victoria_manager.record_generation_metric(
             generation_time=generation_time,
@@ -255,7 +259,7 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
     buffer_size = buffer.tell()
     buffer.seek(0)
 
-    logger.info(f"Task completed.")
+    logger.info(format_task_log(task_id, "Task completed."))
 
     async def generate_chunks():
         chunk_size = 1024 * 1024  # 1 MB
