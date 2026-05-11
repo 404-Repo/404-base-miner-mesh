@@ -24,7 +24,7 @@ class VictoriaMetricsManager:
         self._histograms: dict[str, Histogram] = {}
         self._counters: dict[str, Counter] = {}
 
-        label_names = ["service", "type", "worker_id", "task_id"]
+        label_names = ["service", "type", "generator_id", "task_id"]
 
         self._counters["generation_count"] = Counter(
             "generation_count",
@@ -82,7 +82,7 @@ class VictoriaMetricsManager:
         self,
         *,
         generation_time: float,
-        worker_id: str,
+        generator_id: str,
         worker_type: Literal["verda", "runpod"],
         task_id: str,
     ) -> None:
@@ -90,7 +90,7 @@ class VictoriaMetricsManager:
             labels = {
                 "service": SERVICE_NAME,
                 "type": worker_type,
-                "worker_id": worker_id,
+                "generator_id": generator_id,
                 "task_id": task_id,
             }
             self._counters["generation_count"].labels(**labels).inc()
@@ -104,7 +104,7 @@ class VictoriaMetricsManager:
     async def record_generation_error_metric(
         self,
         *,
-        worker_id: str,
+        generator_id: str,
         worker_type: Literal["verda", "runpod"],
         task_id: str,
     ) -> None:
@@ -112,7 +112,7 @@ class VictoriaMetricsManager:
             labels = {
                 "service": SERVICE_NAME,
                 "type": worker_type,
-                "worker_id": worker_id,
+                "generator_id": generator_id,
                 "task_id": task_id,
             }
             self._counters["generation_error_count"].labels(**labels).inc()
