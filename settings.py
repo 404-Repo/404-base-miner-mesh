@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     prometheus_push_gateway_password: SecretStr = Field(
         default=SecretStr(""), description="Password for Basic Authentication to the push gateway."
     )
+    generation_synthetic_failure_rate: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Probability [0,1] that each /generate request fails immediately with a synthetic error "
+            "so VictoriaMetrics generation_error_count can be exercised. Set via env "
+            "GENERATION_SYNTHETIC_FAILURE_RATE."
+        ),
+    )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
