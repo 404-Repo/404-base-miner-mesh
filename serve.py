@@ -128,14 +128,14 @@ def detect_instance_identity() -> tuple[str, Literal["verda", "runpod"]]:
     return container_id, "verda"
 
 
-def _build_loki_log_manager(*, generator_id: str, worker_type: Literal["verda", "runpod"]) -> LokiLogManager | None:
+def _build_loki_log_manager(*, generator_mesh_v1_id: str, worker_type: Literal["verda", "runpod"]) -> LokiLogManager | None:
     if not settings.loki_enabled:
         return None
     return LokiLogManager(
         endpoint=settings.loki_endpoint,
         username=settings.loki_username,
         password=settings.loki_password.get_secret_value(),
-        generator_id=generator_id,
+        generator_mesh_v1_id=generator_mesh_v1_id,
         worker_type=worker_type,
         push_interval_seconds=settings.loki_push_interval_seconds,
         batch_size=settings.loki_batch_size,
@@ -152,7 +152,7 @@ class MyFastAPI(FastAPI):
 @asynccontextmanager
 async def lifespan(app: MyFastAPI) -> AsyncIterator[None]:
     instance_id, instance_type = detect_instance_identity()
-    loki_manager = _build_loki_log_manager(generator_id=instance_id, worker_type=instance_type)
+    loki_manager = _build_loki_log_manager(generator_mesh_v1_id=instance_id, worker_type=instance_type)
     loki_sink_id: int | None = None
 
     async with (
@@ -262,13 +262,14 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
         generation_time = time() - t_start
         await app.state.victoria_manager.record_generation_metric(
             generation_time=generation_time,
-            generator_id=app.state.instance_id,
+            generator_mesh_v1_id=app.state.instance_id,
             worker_type=app.state.instance_type,
             task_id=task_id,
         )
     except Exception:
+        logger.exception(format_task_log(task_id, "Generation failed."))
         await app.state.victoria_manager.record_generation_error_metric(
-            generator_id=app.state.instance_id,
+            generator_mesh_v1_id=app.state.instance_id,
             worker_type=app.state.instance_type,
             task_id=task_id,
         )

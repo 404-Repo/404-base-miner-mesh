@@ -18,7 +18,7 @@ class LokiLogManager:
         endpoint: str,
         username: str,
         password: str,
-        generator_id: str,
+        generator_mesh_v1_id: str,
         worker_type: Literal["verda", "runpod"],
         push_interval_seconds: float,
         batch_size: int,
@@ -26,7 +26,7 @@ class LokiLogManager:
     ) -> None:
         self._endpoint = endpoint
         self._auth = (username, password)
-        self._generator_id = generator_id
+        self._generator_mesh_v1_id = generator_mesh_v1_id
         self._worker_type = worker_type
         self._push_interval_seconds = max(push_interval_seconds, 0.1)
         self._batch_size = max(batch_size, 1)
@@ -58,7 +58,7 @@ class LokiLogManager:
             key = (
                 f"service={SERVICE_NAME}",
                 f"type={self._worker_type}",
-                f"generator_id={self._generator_id}",
+                f"generator_mesh_v1_id={self._generator_mesh_v1_id}",
                 f"level={level}",
                 f"logger={logger_name}",
             )
