@@ -55,13 +55,18 @@ class LokiLogManager:
             logger_name = str(record["name"])
             ts_ns = str(int(record["time"].timestamp() * 1_000_000_000))
             log_line = str(record["message"])
-            key = (
+            extra = record.get("extra") or {}
+            task_id = extra.get("task_id")
+            key_parts = [
                 f"service={SERVICE_NAME}",
                 f"type={self._worker_type}",
                 f"generator_mesh_v1_id={self._generator_mesh_v1_id}",
                 f"level={level}",
                 f"logger={logger_name}",
-            )
+            ]
+            if task_id:
+                key_parts.append(f"task_id={str(task_id)}")
+            key = tuple(key_parts)
         except Exception:
             # Never interrupt app execution because of logging export path.
             return

@@ -206,93 +206,95 @@ app.router.lifespan_context = lifespan
 def generation_block(prompt_image: Image.Image, params_dict: dict, seed: int = -1, task_id: str = "") -> BytesIO:
     """ Function for 3D data generation using provided image"""
 
-    t_start = time()
-    parsed_params = parse_parameters_args(params_dict, task_id)
+    with logger.contextualize(task_id=task_id) if task_id else nullcontext():
+        t_start = time()
+        parsed_params = parse_parameters_args(params_dict, task_id)
 
-    mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=parsed_params.pipeline_type)[0]
-    mesh.simplify()
+        mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=parsed_params.pipeline_type)[0]
+        mesh.simplify()
 
-    glb = o_voxel.postprocess.to_glb(
-        vertices=mesh.vertices,
-        faces=mesh.faces,
-        attr_volume=mesh.attrs,
-        coords=mesh.coords,
-        attr_layout=mesh.layout,
-        voxel_size=mesh.voxel_size,
-        aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
-        decimation_target=parsed_params.face_count,
-        texture_size=parsed_params.texture_size,
-        remesh=True,
-        remesh_band=1,
-        remesh_project=0,
-        verbose=True
-    )
+        glb = o_voxel.postprocess.to_glb(
+            vertices=mesh.vertices,
+            faces=mesh.faces,
+            attr_volume=mesh.attrs,
+            coords=mesh.coords,
+            attr_layout=mesh.layout,
+            voxel_size=mesh.voxel_size,
+            aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+            decimation_target=parsed_params.face_count,
+            texture_size=parsed_params.texture_size,
+            remesh=True,
+            remesh_band=1,
+            remesh_project=0,
+            verbose=True
+        )
 
-    buffer = BytesIO()
-    glb.export(buffer, extension_webp=False, file_type="glb")
-    buffer.seek(0)
+        buffer = BytesIO()
+        glb.export(buffer, extension_webp=False, file_type="glb")
+        buffer.seek(0)
 
-    t_get_model = time()
-    logger.debug(format_task_log(task_id, f"Model Generation took: {(t_get_model - t_start)} secs."))
+        t_get_model = time()
+        logger.debug(format_task_log(task_id, f"Model Generation took: {(t_get_model - t_start)} secs."))
 
-    clean_vram()
+        clean_vram()
 
-    t_gc = time()
-    logger.debug(format_task_log(task_id, f"Garbage Collection took: {(t_gc - t_get_model)} secs"))
+        t_gc = time()
+        logger.debug(format_task_log(task_id, f"Garbage Collection took: {(t_gc - t_get_model)} secs"))
 
-    return buffer
+        return buffer
 
 
 @app.post("/generate")
 async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: str|None = Form(None), task_id: str = Form("")) -> Response:
     """ Generates a 3D model as GLB file """
 
-    logger.info(format_task_log(task_id, "Task received. Prompt-Image"))
+    with logger.contextualize(task_id=task_id) if task_id else nullcontext():
+        logger.info(format_task_log(task_id, "Task received. Prompt-Image"))
 
-    contents = await prompt_image_file.read()
-    prompt_image = Image.open(BytesIO(contents))
+        contents = await prompt_image_file.read()
+        prompt_image = Image.open(BytesIO(contents))
 
-    params_dict = json.loads(params) if params else {}
+        params_dict = json.loads(params) if params else {}
 
-    loop = asyncio.get_running_loop()
-    t_start = time()
-    try:
-        _maybe_synthetic_generation_failure(task_id)
-        buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed, task_id)
-        generation_time = time() - t_start
-        await app.state.victoria_manager.record_generation_metric(
-            generation_time=generation_time,
-            generator_mesh_v1_id=app.state.instance_id,
-            worker_type=app.state.instance_type,
-            task_id=task_id,
+        loop = asyncio.get_running_loop()
+        t_start = time()
+        try:
+            _maybe_synthetic_generation_failure(task_id)
+            buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed, task_id)
+            generation_time = time() - t_start
+            await app.state.victoria_manager.record_generation_metric(
+                generation_time=generation_time,
+                generator_mesh_v1_id=app.state.instance_id,
+                worker_type=app.state.instance_type,
+                task_id=task_id,
+            )
+        except Exception:
+            logger.exception(format_task_log(task_id, "Generation failed."))
+            await app.state.victoria_manager.record_generation_error_metric(
+                generator_mesh_v1_id=app.state.instance_id,
+                worker_type=app.state.instance_type,
+                task_id=task_id,
+            )
+            raise
+
+        buffer.seek(0, 2)
+        buffer_size = buffer.tell()
+        buffer.seek(0)
+
+        logger.info(format_task_log(task_id, "Task completed."))
+
+        async def generate_chunks():
+            chunk_size = 1024 * 1024  # 1 MB
+            while chunk := buffer.read(chunk_size):
+                yield chunk
+
+        clean_vram()
+
+        return StreamingResponse(
+            generate_chunks(),
+            media_type="application/octet-stream",
+            headers={"Content-Length": str(buffer_size)}
         )
-    except Exception:
-        logger.exception(format_task_log(task_id, "Generation failed."))
-        await app.state.victoria_manager.record_generation_error_metric(
-            generator_mesh_v1_id=app.state.instance_id,
-            worker_type=app.state.instance_type,
-            task_id=task_id,
-        )
-        raise
-
-    buffer.seek(0, 2)
-    buffer_size = buffer.tell()
-    buffer.seek(0)
-
-    logger.info(format_task_log(task_id, "Task completed."))
-
-    async def generate_chunks():
-        chunk_size = 1024 * 1024  # 1 MB
-        while chunk := buffer.read(chunk_size):
-            yield chunk
-
-    clean_vram()
-
-    return StreamingResponse(
-        generate_chunks(),
-        media_type="application/octet-stream",
-        headers={"Content-Length": str(buffer_size)}
-    )
 
 
 @app.get("/version", response_model=str)
