@@ -1,7 +1,6 @@
 import gc
 import io
 import os
-import random
 import socket
 import sys
 import yaml
@@ -114,17 +113,6 @@ def format_task_log(task_id: str, message: str) -> str:
     return f"{task_id}: {message}"
 
 
-def _maybe_synthetic_generation_failure(task_id: str) -> None:
-    rate = settings.generation_synthetic_failure_rate
-    if rate <= 0.0:
-        return
-    if random.random() < rate:
-        logger.warning(
-            format_task_log(task_id, "Synthetic generation failure (Victoria metrics test).")
-        )
-        raise RuntimeError("Synthetic generation failure for Victoria metrics testing.")
-
-
 def parse_parameters_args(params: dict | None, task_id: str) -> Parameters:
     params = params or {}
     parsed_params = Parameters(**params)
@@ -196,12 +184,6 @@ async def lifespan(app: MyFastAPI) -> AsyncIterator[None]:
         app.state.victoria_manager = victoria_manager
         app.state.instance_id = instance_id
         app.state.instance_type = instance_type
-
-        if settings.generation_synthetic_failure_rate > 0.0:
-            logger.warning(
-                "GENERATION_SYNTHETIC_FAILURE_RATE=%s: random synthetic /generate failures are enabled.",
-                settings.generation_synthetic_failure_rate,
-            )
 
         logger.info("Loading Trellis 2 generator models ...")
         try:
@@ -285,7 +267,6 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
         loop = asyncio.get_running_loop()
         t_start = time()
         try:
-            _maybe_synthetic_generation_failure(task_id)
             buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed, task_id)
             generation_time = time() - t_start
             await app.state.victoria_manager.record_generation_metric(
