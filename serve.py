@@ -1,7 +1,9 @@
 import gc
+import io
 import os
 import random
 import socket
+import sys
 import yaml
 import json
 import argparse
@@ -9,7 +11,7 @@ import asyncio
 from io import BytesIO
 from pathlib import Path
 from time import time
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from typing import Literal
 
 import torch
@@ -29,6 +31,30 @@ from trellis2.pipelines import Trellis2ImageTo3DPipeline
 from loki_logger import LokiLogManager
 from prometheus_manager import VictoriaMetricsManager
 from settings import settings
+
+
+class _StderrToLoguru(io.TextIOBase):
+    """Intercept stderr writes (e.g. tqdm progress) and route them through Loguru."""
+
+    def write(self, text: str) -> int:
+        text = text.rstrip("\r\n")
+        if text:
+            logger.debug(text)
+        return len(text)
+
+    def flush(self) -> None:
+        pass
+
+
+@contextmanager
+def redirect_stderr_to_loguru():
+    """Context manager: replace sys.stderr with Loguru for the duration of the block."""
+    old_stderr = sys.stderr
+    sys.stderr = _StderrToLoguru()
+    try:
+        yield
+    finally:
+        sys.stderr = old_stderr
 
 
 REQUIRED_MODELS = {
@@ -206,7 +232,7 @@ app.router.lifespan_context = lifespan
 def generation_block(prompt_image: Image.Image, params_dict: dict, seed: int = -1, task_id: str = "") -> BytesIO:
     """ Function for 3D data generation using provided image"""
 
-    with logger.contextualize(task_id=task_id) if task_id else nullcontext():
+    with logger.contextualize(task_id=task_id) if task_id else nullcontext(), redirect_stderr_to_loguru():
         t_start = time()
         parsed_params = parse_parameters_args(params_dict, task_id)
 
