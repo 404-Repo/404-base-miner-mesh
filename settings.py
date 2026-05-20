@@ -23,14 +23,12 @@ class Settings(BaseSettings):
     prometheus_push_gateway_password: SecretStr = Field(
         default=SecretStr(""), description="Password for Basic Authentication to the push gateway."
     )
-    generation_synthetic_failure_rate: float = Field(
-        default=0.0,
-        ge=0.0,
-        le=1.0,
+    test_run: bool = Field(
+        default=False,
         description=(
-            "Probability [0,1] that each /generate request fails immediately with a synthetic error "
-            "so VictoriaMetrics generation_error_count can be exercised. Set via env "
-            "GENERATION_SYNTHETIC_FAILURE_RATE."
+            "Enable test mode: each /generate request cycles through synthetic errors "
+            "(HTTP 500, 503, 429) and an occasional success so all error metrics can be "
+            "exercised without real GPU work. Set via env TEST_RUN=true."
         ),
     )
 

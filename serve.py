@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from loguru import logger
 from pydantic import BaseModel, field_validator
-from fastapi import FastAPI,  UploadFile, File, APIRouter, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, APIRouter, Form
 from fastapi.responses import Response, StreamingResponse
 from starlette.datastructures import State
 
@@ -131,6 +131,15 @@ def clean_vram() -> None:
 
 
 executor = ThreadPoolExecutor(max_workers=1)
+
+# Rotating counter for test_run error injection (index into the cycle below).
+_test_error_counter: list[int] = [0]
+_TEST_ERROR_CYCLE = [
+    (500, "Synthetic test error [0]: internal server error (GeneratorFailedError)"),
+    (503, "Synthetic test error [1]: service unavailable (GeneratorReturnCodeError)"),
+    (429, "Synthetic test error [2]: rate limited (GeneratorReturnCodeError)"),
+    (0,   "Synthetic test: success"),  # 0 = no error, return mock bytes
+]
 
 
 def detect_instance_identity() -> tuple[str, Literal["verda", "runpod"]]:
@@ -258,6 +267,28 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
 
     with logger.contextualize(task_id=task_id) if task_id else nullcontext():
         logger.info(format_task_log(task_id, "Task received. Prompt-Image"))
+
+        if settings.test_run:
+            idx = _test_error_counter[0] % len(_TEST_ERROR_CYCLE)
+            _test_error_counter[0] += 1
+            status_code, detail = _TEST_ERROR_CYCLE[idx]
+            logger.info(format_task_log(task_id, f"TEST_RUN: step {idx} — {detail}"))
+            if status_code != 0:
+                await app.state.victoria_manager.record_generation_error_metric(
+                    generator_mesh_v1_id=app.state.instance_id,
+                    worker_type=app.state.instance_type,
+                    task_id=task_id,
+                )
+                raise HTTPException(status_code=status_code, detail=detail)
+            mock_bytes = b"mock-glb-test-run"
+            await app.state.victoria_manager.record_generation_metric(
+                generation_time=0.0,
+                generator_mesh_v1_id=app.state.instance_id,
+                worker_type=app.state.instance_type,
+                task_id=task_id,
+            )
+            return Response(content=mock_bytes, media_type="application/octet-stream",
+                            headers={"Content-Length": str(len(mock_bytes))})
 
         contents = await prompt_image_file.read()
         prompt_image = Image.open(BytesIO(contents))
