@@ -132,7 +132,7 @@ def clean_vram() -> None:
 
 executor = ThreadPoolExecutor(max_workers=1)
 
-# Rotating counter for test_run error injection (index into the cycle below).
+# Rotating counter for ERRORS_IN_GENERATOR_MESH_V1 error injection (index into the cycle below).
 _test_error_counter: list[int] = [0]
 _TEST_ERROR_CYCLE = [
     (500, "Synthetic test error [0]: internal server error (GeneratorFailedError)"),
@@ -268,7 +268,7 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
     with logger.contextualize(task_id=task_id) if task_id else nullcontext():
         logger.info(format_task_log(task_id, "Task received. Prompt-Image"))
 
-        if settings.test_run:
+        if settings.errors_in_generator_mesh_v1:
             idx = _test_error_counter[0] % len(_TEST_ERROR_CYCLE)
             _test_error_counter[0] += 1
             status_code, detail = _TEST_ERROR_CYCLE[idx]
