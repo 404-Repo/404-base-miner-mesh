@@ -23,13 +23,9 @@ class Settings(BaseSettings):
     prometheus_push_gateway_password: SecretStr = Field(
         default=SecretStr(""), description="Password for Basic Authentication to the push gateway."
     )
-    errors_in_generator_mesh_v1: bool = Field(
+    test_run: bool = Field(
         default=False,
-        description=(
-            "Use mock generator for mesh v1: each /generate request cycles through synthetic errors "
-            "(HTTP 500, 503, 429) and an occasional success so all error metrics can be "
-            "exercised without real GPU work. Set via env ERRORS_IN_GENERATOR_MESH_V1=true."
-        ),
+        description="When TEST_RUN=true, randomly fail about 50% of /generate requests.",
     )
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
