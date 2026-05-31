@@ -36,10 +36,14 @@ from settings import settings
 class _StderrToLoguru(io.TextIOBase):
     """Intercept stderr writes (e.g. tqdm progress) and route them through Loguru."""
 
+    def __init__(self, task_id: str = "") -> None:
+        super().__init__()
+        self._task_id = task_id
+
     def write(self, text: str) -> int:
         text = text.rstrip("\r\n")
         if text:
-            logger.debug(text)
+            logger.debug(format_task_log(self._task_id, text) if self._task_id else text)
         return len(text)
 
     def flush(self) -> None:
@@ -47,10 +51,10 @@ class _StderrToLoguru(io.TextIOBase):
 
 
 @contextmanager
-def redirect_stderr_to_loguru():
+def redirect_stderr_to_loguru(task_id: str = ""):
     """Context manager: replace sys.stderr with Loguru for the duration of the block."""
     old_stderr = sys.stderr
-    sys.stderr = _StderrToLoguru()
+    sys.stderr = _StderrToLoguru(task_id=task_id)
     try:
         yield
     finally:
@@ -215,7 +219,7 @@ app.router.lifespan_context = lifespan
 def generation_block(prompt_image: Image.Image, params_dict: dict, seed: int = -1, task_id: str = "") -> BytesIO:
     """ Function for 3D data generation using provided image"""
 
-    with logger.contextualize(task_id=task_id) if task_id else nullcontext(), redirect_stderr_to_loguru():
+    with logger.contextualize(task_id=task_id) if task_id else nullcontext(), redirect_stderr_to_loguru(task_id):
         t_start = time()
         parsed_params = parse_parameters_args(params_dict, task_id)
 
