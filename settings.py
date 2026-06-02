@@ -23,11 +23,6 @@ class Settings(BaseSettings):
     prometheus_push_gateway_password: SecretStr = Field(
         default=SecretStr(""), description="Password for Basic Authentication to the push gateway."
     )
-    test_run: bool = Field(
-        default=False,
-        description="When TEST_RUN=true, randomly fail about 50% of /generate requests.",
-    )
-
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

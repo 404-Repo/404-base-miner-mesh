@@ -7,7 +7,6 @@ import yaml
 import json
 import argparse
 import asyncio
-import random
 from io import BytesIO
 from pathlib import Path
 from time import time
@@ -22,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from loguru import logger
 from pydantic import BaseModel, field_validator
-from fastapi import FastAPI, HTTPException, UploadFile, File, APIRouter, Form
+from fastapi import FastAPI, UploadFile, File, APIRouter, Form
 from fastapi.responses import Response, StreamingResponse
 from starlette.datastructures import State
 
@@ -263,16 +262,6 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
 
     with logger.contextualize(task_id=task_id) if task_id else nullcontext():
         logger.info(format_task_log(task_id, "Task received. Prompt-Image"))
-
-        if settings.test_run and random.random() < 0.5:  # noqa: S311 # nosec: B311
-            detail = "TEST_RUN synthetic mesh v1 generation error"
-            logger.warning(format_task_log(task_id, detail))
-            await app.state.victoria_manager.record_generation_error_metric(
-                generator_mesh_v1_id=app.state.instance_id,
-                worker_type=app.state.instance_type,
-                task_id=task_id,
-            )
-            raise HTTPException(status_code=500, detail=detail)
 
         contents = await prompt_image_file.read()
         prompt_image = Image.open(BytesIO(contents))
