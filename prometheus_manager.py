@@ -120,6 +120,7 @@ class VictoriaMetricsManager:
             }
             self._counters["generation_error_count"].labels(**labels).inc()
             await self._push_registry()
+            logger.debug(f"Pushed generation_error_count metric for task {task_id}, prompt_url={prompt_url!r}")
         except httpx.HTTPStatusError as e:
             logger.warning(f"Failed to push metrics to VictoriaMetrics: {e}")
         except Exception as e:

@@ -190,6 +190,10 @@ async def lifespan(app: MyFastAPI) -> AsyncIterator[None]:
         app.state.victoria_manager = victoria_manager
         app.state.instance_id = instance_id
         app.state.instance_type = instance_type
+        if settings.prometheus_push_gateway_url:
+            logger.info(f"Victoria Metrics push enabled: {settings.prometheus_push_gateway_url}")
+        else:
+            logger.warning("Victoria Metrics push is DISABLED: PROMETHEUS_PUSH_GATEWAY_URL is not set")
 
         logger.info("Loading Trellis 2 generator models ...")
         try:
