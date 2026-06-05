@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     prometheus_push_gateway_password: SecretStr = Field(
         default=SecretStr(""), description="Password for Basic Authentication to the push gateway."
     )
+    r2_account_id: str = Field(default="", description="Cloudflare R2 account ID.")
+    r2_access_key_id: str = Field(default="", description="Cloudflare R2 access key ID.")
+    r2_secret_access_key: SecretStr = Field(default=SecretStr(""), description="Cloudflare R2 secret access key.")
+    r2_bucket_name: str = Field(default="", description="Cloudflare R2 bucket name for prompt image storage.")
+    r2_public_url_base: str = Field(default="", description="Base public URL for R2 objects (e.g. https://pub-xxx.r2.dev).")
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

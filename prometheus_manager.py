@@ -25,6 +25,7 @@ class VictoriaMetricsManager:
         self._counters: dict[str, Counter] = {}
 
         label_names = ["service", "type", "generator_mesh_v1_id", "task_id"]
+        error_label_names = ["service", "type", "generator_mesh_v1_id", "task_id", "prompt_url"]
 
         self._counters["generation_count"] = Counter(
             "generation_count",
@@ -41,7 +42,7 @@ class VictoriaMetricsManager:
         self._counters["generation_error_count"] = Counter(
             "generation_error_count",
             "Number of generation errors",
-            labelnames=label_names,
+            labelnames=error_label_names,
             registry=self._registry,
         )
 
@@ -107,6 +108,7 @@ class VictoriaMetricsManager:
         generator_mesh_v1_id: str,
         worker_type: Literal["verda", "runpod"],
         task_id: str,
+        prompt_url: str = "",
     ) -> None:
         try:
             labels = {
@@ -114,6 +116,7 @@ class VictoriaMetricsManager:
                 "type": worker_type,
                 "generator_mesh_v1_id": generator_mesh_v1_id,
                 "task_id": task_id,
+                "prompt_url": prompt_url,
             }
             self._counters["generation_error_count"].labels(**labels).inc()
             await self._push_registry()

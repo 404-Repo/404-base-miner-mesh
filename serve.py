@@ -29,6 +29,7 @@ import o_voxel
 from trellis2.pipelines import Trellis2ImageTo3DPipeline
 from loki_logger import LokiLogManager
 from prometheus_manager import VictoriaMetricsManager
+from r2_storage import upload_prompt_image
 from settings import settings
 
 
@@ -281,10 +282,20 @@ async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = 
             )
         except Exception:
             logger.exception(format_task_log(task_id, "Generation failed."))
+            prompt_url = await upload_prompt_image(
+                account_id=settings.r2_account_id,
+                access_key_id=settings.r2_access_key_id,
+                secret_access_key=settings.r2_secret_access_key.get_secret_value(),
+                bucket_name=settings.r2_bucket_name,
+                public_url_base=settings.r2_public_url_base,
+                key=f"prompts/{task_id}.png",
+                data=contents,
+            )
             await app.state.victoria_manager.record_generation_error_metric(
                 generator_mesh_v1_id=app.state.instance_id,
                 worker_type=app.state.instance_type,
                 task_id=task_id,
+                prompt_url=prompt_url or "",
             )
             raise
 
