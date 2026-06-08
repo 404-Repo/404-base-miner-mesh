@@ -1,7 +1,6 @@
 import gc
 import io
 import os
-import random
 import socket
 import sys
 import yaml
@@ -223,9 +222,6 @@ app.router.lifespan_context = lifespan
 
 def generation_block(prompt_image: Image.Image, params_dict: dict, seed: int = -1, task_id: str = "") -> BytesIO:
     """ Function for 3D data generation using provided image"""
-
-    if random.random() < 0.5:
-        raise RuntimeError("TEST: simulated generation failure (50% probability)")
 
     with logger.contextualize(task_id=task_id) if task_id else nullcontext(), redirect_stderr_to_loguru(task_id):
         t_start = time()
