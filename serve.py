@@ -223,6 +223,10 @@ app.router.lifespan_context = lifespan
 def generation_block(prompt_image: Image.Image, params_dict: dict, seed: int = -1, task_id: str = "") -> BytesIO:
     """ Function for 3D data generation using provided image"""
 
+    MIN_IMAGE_SIZE = 64
+    if prompt_image.width < MIN_IMAGE_SIZE or prompt_image.height < MIN_IMAGE_SIZE:
+        raise ValueError(f"Image too small ({prompt_image.width}x{prompt_image.height}), minimum {MIN_IMAGE_SIZE}x{MIN_IMAGE_SIZE}")
+
     with logger.contextualize(task_id=task_id) if task_id else nullcontext(), redirect_stderr_to_loguru(task_id):
         t_start = time()
         parsed_params = parse_parameters_args(params_dict, task_id)
