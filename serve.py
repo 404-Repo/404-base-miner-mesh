@@ -3,6 +3,7 @@ import io
 import os
 import socket
 import sys
+import urllib.request
 import yaml
 import json
 import argparse
@@ -138,16 +139,31 @@ def clean_vram() -> None:
 executor = ThreadPoolExecutor(max_workers=1)
 
 
-def detect_instance_identity() -> tuple[str, Literal["verda", "runpod"]]:
+def _fetch_gcp_instance_id() -> str | None:
+    try:
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/id",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        with urllib.request.urlopen(req, timeout=1) as resp:
+            return resp.read().decode()
+    except Exception:
+        return None
+
+
+def detect_instance_identity() -> tuple[str, Literal["verda", "runpod", "gcp"]]:
     if pod_id := os.environ.get("RUNPOD_POD_ID"):
         logger.info(f"Detected RunPod, pod ID: {pod_id}")
         return pod_id, "runpod"
+    if instance_id := _fetch_gcp_instance_id():
+        logger.info(f"Detected GCP, instance ID: {instance_id}")
+        return instance_id, "gcp"
     container_id = socket.gethostname()
     logger.info(f"Detected Verda, container ID: {container_id}")
     return container_id, "verda"
 
 
-def _build_loki_log_manager(*, generator_mesh_v1_id: str, worker_type: Literal["verda", "runpod"]) -> LokiLogManager | None:
+def _build_loki_log_manager(*, generator_mesh_v1_id: str, worker_type: Literal["verda", "runpod", "gcp"]) -> LokiLogManager | None:
     if not settings.loki_enabled:
         return None
     return LokiLogManager(

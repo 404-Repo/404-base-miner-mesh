@@ -84,7 +84,7 @@ class VictoriaMetricsManager:
         *,
         generation_time: float,
         generator_mesh_v1_id: str,
-        worker_type: Literal["verda", "runpod"],
+        worker_type: Literal["verda", "runpod", "gcp"],
         task_id: str,
     ) -> None:
         try:
@@ -106,7 +106,7 @@ class VictoriaMetricsManager:
         self,
         *,
         generator_mesh_v1_id: str,
-        worker_type: Literal["verda", "runpod"],
+        worker_type: Literal["verda", "runpod", "gcp"],
         task_id: str,
         prompt_url: str = "",
     ) -> None:

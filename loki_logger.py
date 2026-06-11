@@ -19,7 +19,7 @@ class LokiLogManager:
         username: str,
         password: str,
         generator_mesh_v1_id: str,
-        worker_type: Literal["verda", "runpod"],
+        worker_type: Literal["verda", "runpod", "gcp"],
         push_interval_seconds: float,
         batch_size: int,
         timeout_seconds: float,
