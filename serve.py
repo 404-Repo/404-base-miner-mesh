@@ -1,4 +1,9 @@
 import gc
+import io
+import os
+import socket
+import sys
+import urllib.request
 import yaml
 import json
 import argparse
@@ -6,7 +11,8 @@ import asyncio
 from io import BytesIO
 from pathlib import Path
 from time import time
-
+from contextlib import contextmanager, nullcontext
+from typing import Literal
 
 import torch
 import uvicorn
@@ -16,12 +22,44 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from loguru import logger
 from pydantic import BaseModel, field_validator
-from fastapi import FastAPI,  UploadFile, File, APIRouter, Form
+from fastapi import FastAPI, UploadFile, File, APIRouter, Form
 from fastapi.responses import Response, StreamingResponse
 from starlette.datastructures import State
 
 import o_voxel
 from trellis2.pipelines import Trellis2ImageTo3DPipeline
+from loki_logger import LokiLogManager
+from prometheus_manager import VictoriaMetricsManager
+from r2_storage import upload_prompt_image
+from settings import settings
+
+
+class _StderrToLoguru(io.TextIOBase):
+    """Intercept stderr writes (e.g. tqdm progress) and route them through Loguru."""
+
+    def __init__(self, task_id: str = "") -> None:
+        super().__init__()
+        self._task_id = task_id
+
+    def write(self, text: str) -> int:
+        text = text.rstrip("\r\n")
+        if text:
+            logger.debug(format_task_log(self._task_id, text) if self._task_id else text)
+        return len(text)
+
+    def flush(self) -> None:
+        pass
+
+
+@contextmanager
+def redirect_stderr_to_loguru(task_id: str = ""):
+    """Context manager: replace sys.stderr with Loguru for the duration of the block."""
+    old_stderr = sys.stderr
+    sys.stderr = _StderrToLoguru(task_id=task_id)
+    try:
+        yield
+    finally:
+        sys.stderr = old_stderr
 
 
 REQUIRED_MODELS = {
@@ -77,13 +115,17 @@ class Parameters(BaseModel):
         return pipeline_type
 
 
-def parse_parameters_args(params: dict | None) -> Parameters:
+def format_task_log(task_id: str, message: str) -> str:
+    return f"{task_id}: {message}"
+
+
+def parse_parameters_args(params: dict | None, task_id: str) -> Parameters:
     params = params or {}
     parsed_params = Parameters(**params)
 
-    logger.info(f"Pipeline Type: {parsed_params.pipeline_type}")
-    logger.info(f"Texture size: {parsed_params.texture_size}")
-    logger.info(f"Face count: {parsed_params.face_count}")
+    logger.info(format_task_log(task_id, f"Pipeline Type: {parsed_params.pipeline_type}"))
+    logger.info(format_task_log(task_id, f"Texture size: {parsed_params.texture_size}"))
+    logger.info(format_task_log(task_id, f"Face count: {parsed_params.face_count}"))
 
     return parsed_params
 
@@ -96,6 +138,46 @@ def clean_vram() -> None:
 
 executor = ThreadPoolExecutor(max_workers=1)
 
+
+def _fetch_gcp_instance_id() -> str | None:
+    try:
+        req = urllib.request.Request(
+            "http://metadata.google.internal/computeMetadata/v1/instance/id",
+            headers={"Metadata-Flavor": "Google"},
+        )
+        with urllib.request.urlopen(req, timeout=1) as resp:
+            return resp.read().decode()
+    except Exception:
+        return None
+
+
+def detect_instance_identity() -> tuple[str, Literal["verda", "runpod", "gcp"]]:
+    if pod_id := os.environ.get("RUNPOD_POD_ID"):
+        logger.info(f"Detected RunPod, pod ID: {pod_id}")
+        return pod_id, "runpod"
+    if instance_id := _fetch_gcp_instance_id():
+        logger.info(f"Detected GCP, instance ID: {instance_id}")
+        return instance_id, "gcp"
+    container_id = socket.gethostname()
+    logger.info(f"Detected Verda, container ID: {container_id}")
+    return container_id, "verda"
+
+
+def _build_loki_log_manager(*, generator_mesh_v1_id: str, worker_type: Literal["verda", "runpod", "gcp"]) -> LokiLogManager | None:
+    if not settings.loki_enabled:
+        return None
+    return LokiLogManager(
+        endpoint=settings.loki_endpoint,
+        username=settings.loki_username,
+        password=settings.loki_password.get_secret_value(),
+        generator_mesh_v1_id=generator_mesh_v1_id,
+        worker_type=worker_type,
+        push_interval_seconds=settings.loki_push_interval_seconds,
+        batch_size=settings.loki_batch_size,
+        timeout_seconds=settings.loki_timeout_seconds,
+    )
+
+
 class MyFastAPI(FastAPI):
     state: State
     router: APIRouter
@@ -104,100 +186,161 @@ class MyFastAPI(FastAPI):
 
 @asynccontextmanager
 async def lifespan(app: MyFastAPI) -> AsyncIterator[None]:
-    logger.info("Loading Trellis 2 generator models ...")
-    try:
-        model_versions = load_model_versions()
-        logger.info(f"Loaded pinned revisions for {len(model_versions)} models")
-        
-        app.state.trellis_generator = Trellis2ImageTo3DPipeline.from_pretrained(
-            "microsoft/TRELLIS.2-4B",
-            model_versions,
-        )
-        app.state.trellis_generator.to("cuda")
+    instance_id, instance_type = detect_instance_identity()
+    loki_manager = _build_loki_log_manager(generator_mesh_v1_id=instance_id, worker_type=instance_type)
+    loki_sink_id: int | None = None
 
-    except Exception as e:
-        logger.exception(f"Exception during model loading: {e}")
-        raise SystemExit("Model failed to load → exiting server")
+    async with (
+        loki_manager or nullcontext(),
+        VictoriaMetricsManager(
+            pushgateway_url=settings.prometheus_push_gateway_url,
+            username=settings.prometheus_push_gateway_username,
+            password=settings.prometheus_push_gateway_password.get_secret_value(),
+        ) as victoria_manager,
+    ):
+        if loki_manager is not None:
+            loki_sink_id = logger.add(loki_manager.sink, level="DEBUG", enqueue=True)
+            logger.info("Loki log shipping is enabled.")
 
-    yield
+        app.state.victoria_manager = victoria_manager
+        app.state.instance_id = instance_id
+        app.state.instance_type = instance_type
+        if settings.prometheus_push_gateway_url:
+            logger.info(f"Victoria Metrics push enabled: {settings.prometheus_push_gateway_url}")
+        else:
+            logger.warning("Victoria Metrics push is DISABLED: PROMETHEUS_PUSH_GATEWAY_URL is not set")
+
+        logger.info("Loading Trellis 2 generator models ...")
+        try:
+            model_versions = load_model_versions()
+            logger.info(f"Loaded pinned revisions for {len(model_versions)} models")
+
+            app.state.trellis_generator = Trellis2ImageTo3DPipeline.from_pretrained(
+                "microsoft/TRELLIS.2-4B",
+                model_versions,
+            )
+            app.state.trellis_generator.to("cuda")
+
+        except Exception as e:
+            logger.exception(f"Exception during model loading: {e}")
+            raise SystemExit("Model failed to load → exiting server")
+
+        yield
+
+        logger.info("Shutting down...")
+        if loki_sink_id is not None:
+            logger.remove(loki_sink_id)
 
 
 app = MyFastAPI(title="404 Base Miner Service", version="0.0.0")
 app.router.lifespan_context = lifespan
 
 
-def generation_block(prompt_image: Image.Image, params_dict:dict, seed: int = -1) -> BytesIO:
+def generation_block(prompt_image: Image.Image, params_dict: dict, seed: int = -1, task_id: str = "") -> BytesIO:
     """ Function for 3D data generation using provided image"""
 
-    t_start = time()
-    parsed_params = parse_parameters_args(params_dict)
+    MIN_IMAGE_SIZE = 64
+    if prompt_image.width < MIN_IMAGE_SIZE or prompt_image.height < MIN_IMAGE_SIZE:
+        raise ValueError(f"Image too small ({prompt_image.width}x{prompt_image.height}), minimum {MIN_IMAGE_SIZE}x{MIN_IMAGE_SIZE}")
 
-    mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=parsed_params.pipeline_type)[0]
-    mesh.simplify()
+    with logger.contextualize(task_id=task_id) if task_id else nullcontext(), redirect_stderr_to_loguru(task_id):
+        t_start = time()
+        parsed_params = parse_parameters_args(params_dict, task_id)
 
-    glb = o_voxel.postprocess.to_glb(
-        vertices=mesh.vertices,
-        faces=mesh.faces,
-        attr_volume=mesh.attrs,
-        coords=mesh.coords,
-        attr_layout=mesh.layout,
-        voxel_size=mesh.voxel_size,
-        aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
-        decimation_target=parsed_params.face_count,
-        texture_size=parsed_params.texture_size,
-        remesh=True,
-        remesh_band=1,
-        remesh_project=0,
-        verbose=True
-    )
+        mesh = app.state.trellis_generator.run(image=prompt_image, seed=seed, pipeline_type=parsed_params.pipeline_type)[0]
+        mesh.simplify()
 
-    buffer = BytesIO()
-    glb.export(buffer, extension_webp=False, file_type="glb")
-    buffer.seek(0)
+        glb = o_voxel.postprocess.to_glb(
+            vertices=mesh.vertices,
+            faces=mesh.faces,
+            attr_volume=mesh.attrs,
+            coords=mesh.coords,
+            attr_layout=mesh.layout,
+            voxel_size=mesh.voxel_size,
+            aabb=[[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+            decimation_target=parsed_params.face_count,
+            texture_size=parsed_params.texture_size,
+            remesh=True,
+            remesh_band=1,
+            remesh_project=0,
+            verbose=True
+        )
 
-    t_get_model = time()
-    logger.debug(f"Model Generation took: {(t_get_model - t_start)} secs.")
+        buffer = BytesIO()
+        glb.export(buffer, extension_webp=False, file_type="glb")
+        buffer.seek(0)
 
-    clean_vram()
+        t_get_model = time()
+        logger.debug(format_task_log(task_id, f"Model Generation took: {(t_get_model - t_start)} secs."))
 
-    t_gc = time()
-    logger.debug(f"Garbage Collection took: {(t_gc - t_get_model)} secs")
+        clean_vram()
 
-    return buffer
+        t_gc = time()
+        logger.debug(format_task_log(task_id, f"Garbage Collection took: {(t_gc - t_get_model)} secs"))
+
+        return buffer
 
 
 @app.post("/generate")
-async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: str|None = Form(None)) -> Response:
+async def generate_model(prompt_image_file: UploadFile = File(...), seed: int = Form(-1), params: str|None = Form(None), task_id: str = Form("")) -> Response:
     """ Generates a 3D model as GLB file """
 
-    logger.info("Task received. Prompt-Image")
+    with logger.contextualize(task_id=task_id) if task_id else nullcontext():
+        logger.info(format_task_log(task_id, "Task received. Prompt-Image"))
 
-    contents = await prompt_image_file.read()
-    prompt_image = Image.open(BytesIO(contents))
+        contents = await prompt_image_file.read()
+        prompt_image = Image.open(BytesIO(contents))
 
-    params_dict = json.loads(params) if params else {}
+        params_dict = json.loads(params) if params else {}
 
-    loop = asyncio.get_running_loop()
-    buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed)
+        loop = asyncio.get_running_loop()
+        t_start = time()
+        try:
+            buffer = await loop.run_in_executor(executor, generation_block, prompt_image, params_dict, seed, task_id)
+            generation_time = time() - t_start
+            await app.state.victoria_manager.record_generation_metric(
+                generation_time=generation_time,
+                generator_mesh_v1_id=app.state.instance_id,
+                worker_type=app.state.instance_type,
+                task_id=task_id,
+            )
+        except Exception:
+            logger.exception(format_task_log(task_id, "Generation failed."))
+            prompt_url = await upload_prompt_image(
+                account_id=settings.r2_account_id,
+                access_key_id=settings.r2_access_key_id,
+                secret_access_key=settings.r2_secret_access_key.get_secret_value(),
+                bucket_name=settings.r2_bucket_name,
+                public_url_base=settings.r2_public_url_base,
+                key=f"prompts/{task_id}.png",
+                data=contents,
+            )
+            await app.state.victoria_manager.record_generation_error_metric(
+                generator_mesh_v1_id=app.state.instance_id,
+                worker_type=app.state.instance_type,
+                task_id=task_id,
+                prompt_url=prompt_url or "",
+            )
+            raise
 
-    buffer.seek(0, 2)
-    buffer_size = buffer.tell()
-    buffer.seek(0)
+        buffer.seek(0, 2)
+        buffer_size = buffer.tell()
+        buffer.seek(0)
 
-    logger.info(f"Task completed.")
+        logger.info(format_task_log(task_id, "Task completed."))
 
-    async def generate_chunks():
-        chunk_size = 1024 * 1024  # 1 MB
-        while chunk := buffer.read(chunk_size):
-            yield chunk
+        async def generate_chunks():
+            chunk_size = 1024 * 1024  # 1 MB
+            while chunk := buffer.read(chunk_size):
+                yield chunk
 
-    clean_vram()
+        clean_vram()
 
-    return StreamingResponse(
-        generate_chunks(),
-        media_type="application/octet-stream",
-        headers={"Content-Length": str(buffer_size)}
-    )
+        return StreamingResponse(
+            generate_chunks(),
+            media_type="application/octet-stream",
+            headers={"Content-Length": str(buffer_size)}
+        )
 
 
 @app.get("/version", response_model=str)
